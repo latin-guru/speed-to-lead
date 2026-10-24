@@ -11,7 +11,7 @@
 <body>
   <a class="skip" href="#main">Skip to content</a>
   <div class="demo-banner" role="note">
-    <strong>Demo with sample data.</strong> Fictional company, no real messages are sent. May take a moment to wake up.
+    {% block banner %}<strong>Demo with sample data.</strong> Fictional company, {% if real_email %}texts are never sent and email is real only for interview invite links{% else %}no real messages are sent{% endif %}. May take a moment to wake up.{% endblock %}
   </div>
   <header class="topbar">
     <div class="brand">
@@ -24,6 +24,7 @@
       <a href="/dashboard" {% if page == 'overview' %}aria-current="page"{% endif %}>Overview</a>
       <a href="/dashboard/leads" {% if page == 'leads' %}aria-current="page"{% endif %}>Leads</a>
       {% if can('retry_jobs') %}<a href="/dashboard/admin/jobs" {% if page == 'admin' %}aria-current="page"{% endif %}>Admin</a>{% endif %}
+      {% if can('manage_invites') %}<a href="/dashboard/interview" {% if page == 'interview' %}aria-current="page"{% endif %}>Interview mode</a>{% endif %}
       <a href="/dashboard/account" {% if page == 'account' %}aria-current="page"{% endif %}>Account</a>
       <a href="/docs">API</a>
     </nav>
@@ -39,7 +40,7 @@
   </main>
   <footer class="foot">
     <span>v{{ version }} · times in {{ tz }}</span>
-    <span>Senders and CRM are mocks. Nothing leaves this server.</span>
+    {% if real_email %}<span>SMS and CRM are mocks. Only interview invite links send one real email.</span>{% else %}<span>Senders and CRM are mocks. Nothing leaves this server.</span>{% endif %}
   </footer>
   {% block scripts %}{% endblock %}
 </body>

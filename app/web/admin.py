@@ -130,6 +130,15 @@ def _settings_rows(settings: Settings, crm_name: str) -> list[tuple[str, str]]:
         ),
         ("Lockout after", f"{settings.login_max_failures} failed logins"),
         ("Two-factor for admins", "required" if settings.admin_2fa_required else "optional"),
+        (
+            "Interview email",
+            (
+                f"real via {settings.email_backend}, {settings.interview_email_max_per_hour}/h, "
+                f"{settings.interview_email_max_per_day}/day"
+                if settings.real_email_configured
+                else "mock"
+            ),
+        ),
         ("Retention", f"{settings.retention_days} days ({settings.retention_mode})"),
         ("CORS origins", ", ".join(settings.cors_origins) or "none (CORS off)"),
         ("ADMIN_TOKEN (machine API)", is_set(settings.admin_token)),

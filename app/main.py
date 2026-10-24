@@ -27,13 +27,14 @@ from app.crm.base import CRMAdapter
 from app.db import init_db, make_engine, make_session_factory, schema_is_current
 from app.demo.runtime import DemoRunner, reseed
 from app.followups.sequence import Sequence
+from app.interview.mailer import EmailBackend
 from app.logging import configure_logging
 from app.runtime import build_job_context, build_scoring
 from app.security import fields
 from app.security.headers import BodySizeLimitMiddleware, SecurityHeadersMiddleware, docs_csp
 from app.security.rate_limit import TokenBucketLimiter
 from app.services.leads import Intake
-from app.web import account, auth, dashboard
+from app.web import account, auth, dashboard, interview
 from app.web import admin as admin_pages
 from app.web import routes as web_routes
 from app.web.common import (
@@ -57,6 +58,7 @@ def create_app(
     sleep: Callable[[float], None] | None = None,
     sequence: Sequence | None = None,
     crm: CRMAdapter | None = None,
+    email_backend: EmailBackend | None = None,
     demo_simulate: bool = True,
 ) -> FastAPI:
     settings = settings or get_settings()
@@ -71,7 +73,9 @@ def create_app(
     # The API process does not score, but it builds the same context as the worker so a
     # misconfigured provider fails at startup here too, and tests can run jobs in-process.
     scoring = build_scoring(settings, scorer=scorer, http_client=client, sleep=sleep)
-    job_context = build_job_context(settings, scoring=scoring, sequence=sequence, crm=crm)
+    job_context = build_job_context(
+        settings, scoring=scoring, sequence=sequence, crm=crm, email_backend=email_backend
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -126,6 +130,10 @@ def create_app(
         capacity=settings.webhook_rate_limit_capacity,
         refill_per_second=settings.webhook_rate_limit_refill_per_minute / 60.0,
     )
+    app.state.try_limiter = TokenBucketLimiter(
+        capacity=settings.interview_form_per_ip_per_hour,
+        refill_per_second=settings.interview_form_per_ip_per_hour / 3600.0,
+    )
     app.state.scoring_service = scoring
     app.state.job_context = job_context
     app.state.intake = Intake(
@@ -145,6 +153,7 @@ def create_app(
     app.include_router(dashboard.router)
     app.include_router(admin_pages.router)
     app.include_router(account.router)
+    app.include_router(interview.router)
     app.include_router(web_routes.router)
     app.add_exception_handler(LoginRequired, login_redirect)
     app.add_exception_handler(Forbidden, forbidden_page)

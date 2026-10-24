@@ -1,0 +1,47 @@
+{% extends "dash_base.html" %}
+{% block title %}Live demo{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+{% block banner %}<strong>Demo.</strong> Fictional company. {% if real_email %}This page can send one real email to the address you enter; texts are never sent.{% else %}Email on this server is a mock; texts are never sent.{% endif %}{% endblock %}
+{% block content %}
+<section class="card try">
+{% if mode == 'closed' %}
+  <h1>Link unavailable</h1>
+  <p class="lede">{{ closed_message }}</p>
+  <p>You can still look around the read-only demo: <a href="/login">open the dashboard</a>.</p>
+{% elif mode == 'panel' %}
+  <h1>Here's what happened to your lead</h1>
+  <p class="muted">Updating live. Copperline Roofing &amp; Solar is fictional: nobody will call you.</p>
+  <ol class="steps" id="panel" data-status-url="/try/{{ token }}/status" aria-live="polite">
+    <li data-step="created"><span class="state">…</span> <strong>Lead created</strong><span class="detail"></span></li>
+    <li data-step="scored"><span class="state">…</span> <strong>Scored</strong><span class="detail"></span></li>
+    <li data-step="email"><span class="state">…</span> <strong>Email reply sent</strong><span class="detail"></span></li>
+    <li data-step="crm"><span class="state">…</span> <strong>CRM synced</strong><span class="detail"></span></li>
+  </ol>
+  <p class="small muted" id="panel-sms">Texts are never sent in interview mode.</p>
+  <p><a class="btn" href="/login">Open the dashboard</a></p>
+{% else %}
+  <h1>You're seeing a live demo</h1>
+  <p class="lede">Enter your own email to receive the real speed-to-lead reply. Then watch your lead get scored, answered and synced, live.</p>
+  {% if errors %}
+  <ul class="error errors" role="alert">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  {% endif %}
+  <form method="post" action="/try/{{ token }}" class="stack" novalidate>
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+    <div class="hp" aria-hidden="true">
+      <label for="{{ honeypot }}">Leave this empty</label>
+      <input id="{{ honeypot }}" name="{{ honeypot }}" type="text" tabindex="-1" autocomplete="off">
+    </div>
+    <label for="first_name">First name</label>
+    <input id="first_name" name="first_name" autocomplete="given-name" maxlength="{{ first_name_max }}" required value="{{ values.first_name }}">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" maxlength="254" required value="{{ values.email }}">
+    <label for="message">Message <span class="muted">(optional)</span></label>
+    <textarea id="message" name="message" maxlength="{{ message_max }}" rows="3">{{ values.message }}</textarea>
+    <label class="check consent"><input type="checkbox" name="consent" value="yes" required> {{ consent_text }}</label>
+    <button type="submit" class="btn">Send me the reply</button>
+  </form>
+  <p class="small muted">One email, once. Your address is encrypted at rest and masked everywhere it is shown.</p>
+{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}{% if mode == 'panel' %}<script src="/static/try.js?v={{ version }}" defer></script>{% endif %}{% endblock %}

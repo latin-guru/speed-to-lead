@@ -188,6 +188,7 @@ def render(
         "company": settings.company_name,
         "version": __version__,
         "demo_mode": settings.demo_mode,
+        "real_email": settings.real_email_configured,
         "user": principal,
         "can": (lambda p: principal is not None and has(principal, Permission(p))),
         "csrf_field": CSRF_FIELD,

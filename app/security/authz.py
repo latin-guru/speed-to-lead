@@ -14,6 +14,7 @@ on another rep's lead by changing the id in the URL (IDOR). The machine API toke
 | reveal contact  | yes   | own leads only              | no     |
 | assign to self  | yes   | unassigned leads            | no     |
 | assign anyone   | yes   | no                          | no     |
+| interview invites | yes | yes                         | no     |
 | retry jobs, kill switch, users, settings, audit log | yes | no | no |
 """
 
@@ -39,6 +40,7 @@ class Permission(enum.StrEnum):
     MANAGE_USERS = "manage_users"
     VIEW_SETTINGS = "view_settings"
     VIEW_AUDIT = "view_audit"
+    MANAGE_INVITES = "manage_invites"  # Interview mode links
 
 
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
@@ -51,6 +53,7 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.CLOSE_TASK,
             Permission.REVEAL_CONTACT,
             Permission.ASSIGN_SELF,
+            Permission.MANAGE_INVITES,
         }
     ),
     UserRole.VIEWER: frozenset({Permission.VIEW_DASHBOARD, Permission.VIEW_LEADS}),

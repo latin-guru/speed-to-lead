@@ -1,0 +1,58 @@
+{% extends "dash_base.html" %}
+{% block title %}Interview mode{% endblock %}
+{% block content %}
+<div class="page-head"><div>
+  <h1>Interview mode</h1>
+  <p class="muted">Create a single-use link for someone watching a live demo. They enter their own email and receive the real speed-to-lead reply, then watch their lead move through the pipeline. Texts are never sent.</p>
+</div></div>
+<p class="callout" role="note">
+  {% if real_email %}
+  <strong>Real email is on</strong> ({{ backend }}). Caps: {{ per_hour }} per hour ({{ sent_hour }} used), {{ per_day }} per day ({{ sent_day }} used), one per link, one per address per day. Over a cap, the mock sender records the email instead.
+  {% else %}
+  <strong>Real email is off</strong> on this server (<code>EMAIL_BACKEND={{ backend }}</code>). Links still work end to end; the mock sender records the email.
+  {% endif %}
+</p>
+{% if new_link %}
+<section class="card new-link" aria-labelledby="new-link-h">
+  <h2 id="new-link-h">New link{% if new_label %}: {{ new_label }}{% endif %}</h2>
+  <p class="token-row"><code class="pick" id="invite-link">{{ new_link }}</code></p>
+  <p class="small muted">Copy it now: only a hash is stored, so it cannot be shown again. It works once and expires in {{ ttl_minutes }} minutes.</p>
+</section>
+{% endif %}
+{% if done %}<p class="notice" role="status">Link revoked.</p>{% endif %}
+<section class="card add-user">
+  <h2>Create a link</h2>
+  <form method="post" action="/dashboard/interview" class="filters invite-form">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+    <div class="field"><label for="label">Label <span class="muted">(optional, e.g. "Acme interview")</span></label><input id="label" name="label" maxlength="80" autocomplete="off"></div>
+    <div class="field actions"><button type="submit" class="btn">Create link</button></div>
+  </form>
+</section>
+<div class="card table-wrap invites">
+  <table class="data">
+    <thead><tr><th scope="col">Label</th><th scope="col">Status</th><th scope="col">Created</th><th scope="col">Expires</th><th scope="col">Used</th><th scope="col">Email</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for inv in invites %}
+      <tr>
+        <td>{{ inv.label or '(no label)' }} <span class="muted small">by {{ inv.created_by }}</span></td>
+        <td><span class="tag invite-{{ inv.status }}">{{ inv.status }}</span></td>
+        <td class="small">{{ local(inv.created_at) }}</td>
+        <td class="small">{{ local(inv.expires_at) }}</td>
+        <td class="small">{{ local(inv.used_at) or '-' }}</td>
+        <td class="small">{{ inv.email_result or '-' }}</td>
+        <td>
+          {% if inv.status == 'active' %}
+          <form method="post" action="/dashboard/interview/{{ inv.id }}/revoke">
+            <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-quiet">Revoke</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">No links yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
