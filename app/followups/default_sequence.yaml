@@ -1,0 +1,45 @@
+# Default follow-up sequence for new leads (Copperline Roofing & Solar, fictional).
+#
+# delay_minutes is measured from when the lead was captured. Steps marked transactional
+# answer the lead's own request, so they skip the minimum-gap rule (an SMS and an email can
+# go out together); they still respect quiet hours, the weekly cap, the kill switch and
+# opt-outs.
+#
+# Placeholders: {first_name} {company} {callback_minutes}
+name: new_lead_default
+steps:
+  - id: ack_sms
+    channel: sms
+    delay_minutes: 0
+    transactional: true
+    body: >-
+      Hi {first_name}, thanks for reaching out to {company}. A specialist will call you
+      within {callback_minutes} minutes. Reply STOP to opt out.
+
+  - id: ack_email
+    channel: email
+    delay_minutes: 0
+    transactional: true
+    subject: "We got your request"
+    body: |-
+      Hi {first_name},
+
+      Thanks for contacting {company}. A specialist will call you within {callback_minutes} minutes to talk through your project.
+
+      If now is not a good time, just reply to this email with a better one.
+
+  - id: reminder_1d
+    channel: sms
+    delay_minutes: 1440
+    body: >-
+      Hi {first_name}, it's {company}. We tried to reach you about your project. Reply with
+      a good time to call. Reply STOP to opt out.
+
+  - id: nudge_3d
+    channel: email
+    delay_minutes: 4320
+    subject: "Still thinking about your project?"
+    body: |-
+      Hi {first_name},
+
+      We haven't connected yet. If you'd still like a free estimate from {company}, reply with a time that works and we'll call you then.
