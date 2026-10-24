@@ -31,7 +31,7 @@ class RuleBasedScorer:
             score += 20
         if lead.has_email:
             score += 10
-        if lead.source == "meta":
+        if lead.source in ("meta", "meta_ads"):  # paid-ad form: intent already shown
             score += 5
         urgent = bool(_URGENT.search(message))
         if urgent:

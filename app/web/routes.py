@@ -96,12 +96,12 @@ async def form_submit(request: Request, session: SessionDep) -> Response:
         )
 
     if str(form.get(HONEYPOT_FIELD) or "").strip():
-        log.info("honeypot_triggered", extra={"source": "web"})
+        log.info("honeypot_triggered", extra={"source": "web_form"})
         return RedirectResponse("/thanks", status_code=303)  # look successful to the bot
 
     payload: dict[str, Any] = {k: v for k, v in values.items() if v.strip()}
     payload.setdefault("name", "")
-    payload["source"] = "web"
+    payload["source"] = "web_form"
     try:
         data = LeadIn.model_validate(payload)
     except ValidationError as exc:

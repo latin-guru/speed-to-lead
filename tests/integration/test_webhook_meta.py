@@ -57,7 +57,7 @@ def test_good_signature_creates_lead(client: TestClient, meta_payload: dict[str,
     drain(client)
     with client.app.state.session_factory() as s:  # type: ignore[attr-defined]
         lead = s.scalars(select(Lead)).one()
-        assert lead.source == "meta"
+        assert lead.source == "meta_ads"
         assert lead.phone == "+12025550147"
         assert lead.scored_by == "mock"
         assert lead.next_step == "call_now"  # roof leak + phone

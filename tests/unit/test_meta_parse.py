@@ -16,7 +16,7 @@ def test_parse_fixture(meta_payload: dict[str, Any]) -> None:
     lead = LeadIn.model_validate(mapped)
     assert lead.name == "Dana Whitfield"
     assert lead.phone == "+12025550147"
-    assert lead.source == "meta"
+    assert lead.source == "meta_ads"
     assert lead.message == "What do you need help with: Roof leak after the storm\nHome owner: Yes"
 
 

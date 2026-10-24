@@ -110,4 +110,4 @@ def lead_fields(fields: dict[str, str]) -> dict[str, Any]:
         if k not in known and v
     ]
     message = "\n".join(extra)[:MESSAGE_MAX] or None
-    return {"name": name, "email": email, "phone": phone, "message": message, "source": "meta"}
+    return {"name": name, "email": email, "phone": phone, "message": message, "source": "meta_ads"}

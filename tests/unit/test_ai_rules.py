@@ -32,7 +32,7 @@ def test_high_score_without_phone_sends_info() -> None:
     r = RuleBasedScorer().score(
         ctx(
             has_phone=False,
-            source="meta",
+            source="meta_ads",
             message="Want a solar install estimate",
             email_domain="example.com",
         )
