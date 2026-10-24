@@ -146,6 +146,139 @@ class Settings(BaseSettings):
     salesforce_access_token: SecretStr | None = None
     salesforce_api_version: str = Field(default="v61.0", pattern=r"^v\d{2,3}\.0$")
 
+    # Interview mode (app/interview/): invite-only links (/try/<token>) where a visitor can
+    # receive ONE real email. Every other message, and every SMS, always goes to the MOCK
+    # senders. Real email needs EMAIL_BACKEND != mock AND INTERVIEW_EMAIL_ENABLED=true.
+    email_backend: Literal["mock", "smtp", "gmail_api"] = "mock"
+    interview_email_enabled: bool = False
+    email_from: str | None = None
+    email_from_name: str = "Copperline Roofing & Solar (demo)"
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    # STARTTLS is required for every host except loopback (used by the tests' fake server).
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # Gmail API backend (skeleton): an OAuth client and a refresh token for the sender.
+    gmail_client_id: str | None = None
+    gmail_client_secret: SecretStr | None = None
+    gmail_refresh_token: SecretStr | None = None
+    invite_ttl_minutes: int = Field(default=120, ge=5, le=24 * 60)
+    # Global caps on real emails (rolling windows). Over a cap, the mock sender is used.
+    interview_email_max_per_hour: int = Field(default=10, ge=1, le=100)
+    interview_email_max_per_day: int = Field(default=30, ge=1, le=500)
+    # Submissions of /try/<token> forms per client IP per hour.
+    interview_form_per_ip_per_hour: int = Field(default=5, ge=1, le=100)
+    # The only link the demo email contains.
+    interview_project_url: str = "https://github.com/latin-guru/speed-to-lead"
+    # Demo mode only: one private account (admin, with two-factor from this secret) for the
+    # person running interviews. Never listed on the login page; set it in the host's secret
+    # store. The secret is needed because the demo database is recreated on every start.
+    demo_owner_email: str | None = None
+    demo_owner_password: SecretStr | None = None
+    demo_owner_totp_secret: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def _check_interview_email(self) -> Settings:
+        from email_validator import EmailNotValidError, validate_email
+
+        for name in ("email_from", "smtp_host", "smtp_username", "gmail_client_id"):
+            if not (getattr(self, name) or "").strip():
+                setattr(self, name, None)  # empty in .env means "not set"
+        if self.interview_email_max_per_hour > self.interview_email_max_per_day:
+            raise ValueError("INTERVIEW_EMAIL_MAX_PER_HOUR must be <= INTERVIEW_EMAIL_MAX_PER_DAY")
+        if self.email_backend == "mock":
+            return self
+        if not self.interview_email_enabled:
+            raise ValueError(
+                f"EMAIL_BACKEND={self.email_backend} sends real email: set "
+                "INTERVIEW_EMAIL_ENABLED=true explicitly, or use EMAIL_BACKEND=mock"
+            )
+        if self.email_from is None:
+            raise ValueError("EMAIL_FROM must be set when EMAIL_BACKEND is not mock")
+        try:
+            validate_email(self.email_from, check_deliverability=False)
+        except EmailNotValidError as exc:
+            raise ValueError("EMAIL_FROM must be a valid email address") from exc
+        if "\n" in self.email_from_name or "\r" in self.email_from_name:
+            raise ValueError("EMAIL_FROM_NAME must be one line")
+        if self.email_backend == "smtp":
+            if self.smtp_host is None:
+                raise ValueError("EMAIL_BACKEND=smtp needs SMTP_HOST")
+            loopback = self.smtp_host in ("localhost", "127.0.0.1", "::1")
+            if not self.smtp_starttls and not loopback:
+                raise ValueError("SMTP_STARTTLS=false is only allowed for a loopback SMTP_HOST")
+            has_password = self.smtp_password is not None and bool(
+                self.smtp_password.get_secret_value()
+            )
+            if (self.smtp_username is None) != (not has_password):
+                raise ValueError("set both SMTP_USERNAME and SMTP_PASSWORD, or neither")
+        if self.email_backend == "gmail_api" and not (
+            self.gmail_client_id
+            and self.gmail_client_secret
+            and self.gmail_client_secret.get_secret_value()
+            and self.gmail_refresh_token
+            and self.gmail_refresh_token.get_secret_value()
+        ):
+            raise ValueError(
+                "EMAIL_BACKEND=gmail_api needs GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET and "
+                "GMAIL_REFRESH_TOKEN"
+            )
+        if self.demo_mode and set(self.demo_role_list) & {"admin", "rep"}:
+            # Those demo accounts share a public password: anyone could create invites.
+            raise ValueError(
+                "DEMO_MODE with real interview email needs DEMO_ROLES=viewer (the admin and "
+                "rep demo accounts have a public password)"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _check_demo_owner(self) -> Settings:
+        import base64
+        import binascii
+
+        email = (self.demo_owner_email or "").strip().lower()
+        self.demo_owner_email = email or None
+        password = self.demo_owner_password.get_secret_value() if self.demo_owner_password else ""
+        secret = (
+            self.demo_owner_totp_secret.get_secret_value().strip().replace(" ", "").upper()
+            if self.demo_owner_totp_secret
+            else ""
+        )
+        if not (email or password or secret):
+            return self
+        if not self.demo_mode:
+            raise ValueError(
+                "DEMO_OWNER_* only applies in DEMO_MODE; create real accounts with "
+                "python -m app.cli create-user"
+            )
+        if not (email and password and secret):
+            raise ValueError(
+                "DEMO_OWNER_EMAIL, DEMO_OWNER_PASSWORD and DEMO_OWNER_TOTP_SECRET go together"
+            )
+        if "@" not in email or email in {f"{role}@example.com" for role in DEMO_ROLES}:
+            raise ValueError("DEMO_OWNER_EMAIL must be an email that is not a demo account")
+        public = self.demo_password.get_secret_value() if self.demo_password else ""
+        if not 12 <= len(password) <= 128 or password in (public, DEFAULT_DEMO_PASSWORD):
+            raise ValueError(
+                "DEMO_OWNER_PASSWORD needs 12 to 128 characters and must not be the public "
+                "demo password"
+            )
+        try:
+            ok = len(base64.b32decode(secret + "=" * (-len(secret) % 8))) >= 10
+        except (binascii.Error, ValueError):
+            ok = False
+        if not ok:
+            raise ValueError("DEMO_OWNER_TOTP_SECRET must be base32 with at least 80 bits")
+        self.demo_owner_totp_secret = SecretStr(secret)
+        return self
+
+    @property
+    def real_email_configured(self) -> bool:
+        """True when interview links may send ONE real email each (still capped)."""
+        return self.interview_email_enabled and self.email_backend != "mock"
+
     @model_validator(mode="after")
     def _check_timezone(self) -> Settings:
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError

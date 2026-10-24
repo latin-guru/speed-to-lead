@@ -13,7 +13,7 @@ from app.ai.service import ScoringService
 from app.crm.base import CRMAdapter
 from app.crm.sync import run_crm_sync
 from app.followups.engine import SendPolicy, send_step
-from app.followups.senders import MessageSender
+from app.followups.senders import MessageSender, SenderPicker
 from app.followups.sequence import Channel, Sequence
 from app.jobs import kinds
 from app.jobs.queue import ClaimedJob, PermanentJobError
@@ -27,6 +27,8 @@ class JobContext:
     senders: dict[Channel, MessageSender]
     policy: SendPolicy
     crm: CRMAdapter | None
+    # Interview mode: may route an invite's one email to the real sender (else None).
+    pick_sender: SenderPicker | None = None
 
 
 Handler = Callable[[JobContext, Session, ClaimedJob, datetime], str]
@@ -55,6 +57,7 @@ def handle_followup_send(ctx: JobContext, session: Session, job: ClaimedJob, now
         senders=ctx.senders,
         policy=ctx.policy,
         now=now,
+        pick_sender=ctx.pick_sender,
     )
 
 

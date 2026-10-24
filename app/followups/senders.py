@@ -1,4 +1,6 @@
-"""Message senders. **Only MOCK senders exist in this project.**
+"""Message senders. **Every message goes to a MOCK sender**, with one exception: the single
+email of an Interview mode invite (``app.interview``), which a ``SenderPicker`` may route to
+a real email sender. SMS is always the mock.
 
 ``MockSmsSender`` and ``MockEmailSender`` never touch the network: "sending" means writing a
 row to ``outbox_messages``. A real sender would implement the same protocol and pass
@@ -11,7 +13,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy.orm import Session
 
@@ -19,6 +21,9 @@ from app.followups.sequence import SMS_MAX, Channel
 from app.jobs.queue import insert_ignore
 from app.models import OutboxMessage
 from app.security import fields
+
+if TYPE_CHECKING:
+    from app.models import Lead
 
 
 @dataclass(frozen=True)
@@ -40,6 +45,22 @@ class MessageSender(Protocol):
     def send(self, session: Session, message: OutboundMessage, *, now: datetime) -> bool:
         """Send at most once per ``idempotency_key``. True if this call sent it."""
         ...
+
+
+class SenderPicker(Protocol):
+    """Chooses the sender for one message, after every guard has passed.
+
+    Gets the sender the engine would use (always a mock) and returns it, or another one.
+    """
+
+    def __call__(
+        self,
+        session: Session,
+        lead: Lead,
+        message: OutboundMessage,
+        default: MessageSender,
+        now: datetime,
+    ) -> MessageSender: ...
 
 
 class _MockOutboxSender:

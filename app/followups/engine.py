@@ -21,9 +21,10 @@ from app.followups.guards import (
     outside_window,
     sends_paused,
 )
-from app.followups.senders import MessageSender, OutboundMessage
+from app.followups.senders import MessageSender, OutboundMessage, SenderPicker
 from app.followups.sequence import Channel, Sequence, render
 from app.followups.wording import call_phrase, received_phrase
+from app.interview import INTERVIEW_SOURCE
 from app.jobs import kinds
 from app.jobs.queue import Deferred, PermanentJobError, cancel_pending, enqueue
 from app.models import Job, JobStatus, Lead, LeadStage, OutboxMessage, SequenceState
@@ -235,6 +236,7 @@ def send_step(
     senders: dict[Channel, MessageSender],
     policy: SendPolicy,
     now: datetime,
+    pick_sender: SenderPicker | None = None,
 ) -> str:
     """Try to send one step. Returns what happened; raises ``Deferred`` for "not yet".
 
@@ -265,7 +267,10 @@ def send_step(
         raise Deferred(now + policy.kill_switch_recheck, "kill_switch")
 
     zone = lead_zone(lead.timezone, policy.business_timezone)
-    if policy.quiet_hours:
+    # An interview-demo lead asked for its one acknowledgment right now, on a page that
+    # says so: the sending window does not hold it back (everything else still applies).
+    asked_now = lead.source == INTERVIEW_SOURCE and step.transactional
+    if policy.quiet_hours and not asked_now:
         opens = next_send_time(now, zone, policy.window)
         if opens > now:
             raise Deferred(opens, "quiet_hours")
@@ -299,6 +304,7 @@ def send_step(
     # says when we will call instead of "within N minutes".
     after_hours = (
         policy.quiet_hours
+        and not asked_now
         and step.after_hours_body is not None
         and outside_window(lead.created_at, zone, policy.window)
     )
@@ -316,6 +322,8 @@ def send_step(
         transactional=step.transactional,
     )
     sender = senders[step.channel]
+    if pick_sender is not None:
+        sender = pick_sender(session, lead, message, sender, now)
     if not sender.send(session, message, now=now):
         return "already_sent"  # lost a race with a duplicate run of this job
     record_first_response(lead, now)

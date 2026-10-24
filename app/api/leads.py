@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AdminDep, SessionDep, TokenPrincipal, public_rate_limit, too_many
 from app.config import Settings
+from app.interview import INTERVIEW_SOURCE
 from app.models import Lead, LeadStage, utcnow
 from app.schemas import ContactLogIn, LeadDetailOut, LeadIn, LeadOut, StageChangeIn
 from app.services import audit
@@ -41,6 +42,8 @@ def enforce_phone_cap(request: Request, session: Session, phone: str | None) -> 
     "/leads", status_code=201, response_model=LeadOut, dependencies=[Depends(public_rate_limit)]
 )
 def post_lead(payload: LeadIn, request: Request, session: SessionDep) -> LeadOut:
+    if payload.source == INTERVIEW_SOURCE:  # only an invite link creates these leads
+        raise HTTPException(status_code=422, detail="source is reserved")
     enforce_phone_cap(request, session, payload.phone)
     lead = create_lead(session, payload, actor="api", detail={"channel": "api"})
     request.app.state.intake.on_lead_created(session, lead)

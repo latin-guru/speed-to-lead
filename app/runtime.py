@@ -19,6 +19,8 @@ from app.followups.engine import SendPolicy
 from app.followups.guards import SendWindow
 from app.followups.senders import mock_senders
 from app.followups.sequence import Sequence, load_sequence
+from app.interview.mailer import EmailBackend, build_real_sender
+from app.interview.routing import EmailCaps, InterviewEmailRouter
 from app.jobs.handlers import JobContext
 
 
@@ -63,11 +65,25 @@ def build_job_context(
     scoring: ScoringService,
     sequence: Sequence | None = None,
     crm: CRMAdapter | None = None,
+    email_backend: EmailBackend | None = None,
 ) -> JobContext:
     return JobContext(
         scoring=scoring,
         sequence=sequence or load_sequence(settings.followup_sequence_path),
-        senders=mock_senders(),  # MOCK only: this project never sends real messages
+        # MOCK senders for everything; the router below may swap in the real email sender
+        # for an interview invite's one acknowledgment (never SMS, never anything else).
+        senders=mock_senders(),
         policy=build_policy(settings),
         crm=crm if crm is not None else build_crm_adapter(settings),
+        pick_sender=build_router(settings, email_backend),
+    )
+
+
+def build_router(settings: Settings, backend: EmailBackend | None = None) -> InterviewEmailRouter:
+    return InterviewEmailRouter(
+        build_real_sender(settings, backend) if settings.real_email_configured else None,
+        EmailCaps(
+            per_hour=settings.interview_email_max_per_hour,
+            per_day=settings.interview_email_max_per_day,
+        ),
     )

@@ -87,6 +87,21 @@ def seed_demo_users(settings: Settings, sf: sessionmaker[Session]) -> list[str]:
         admin = users.get("admin")
         if admin is not None:  # real two-factor, with a public secret (its code is shown)
             mfa.enable_with_secret(session, admin, totp.demo_secret(), now=utcnow())
+        if settings.demo_owner_email:  # private, never listed on the login page
+            assert settings.demo_owner_password is not None  # validated together
+            assert settings.demo_owner_totp_secret is not None
+            owner = User(
+                email=settings.demo_owner_email,
+                password_hash=hash_password(settings.demo_owner_password.get_secret_value()),
+                role=UserRole.ADMIN.value,
+                active=True,
+                failed_logins=0,
+            )
+            session.add(owner)
+            session.flush()
+            mfa.enable_with_secret(
+                session, owner, settings.demo_owner_totp_secret.get_secret_value(), now=utcnow()
+            )
         rep = users.get("rep")
         if rep is not None:
             lead_ids = sorted(session.scalars(select(Lead.id)), key=str)

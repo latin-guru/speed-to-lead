@@ -24,6 +24,8 @@ ALLOWED_HOSTS = frozenset(
         "api.x.ai",  # Grok scorer
         "api.hubapi.com",  # HubSpot
         "services.leadconnectorhq.com",  # GoHighLevel (API v2)
+        "oauth2.googleapis.com",  # Gmail API skeleton (interview email): token refresh
+        "gmail.googleapis.com",  # Gmail API skeleton (interview email): messages.send
     }
 )
 _SALESFORCE = re.compile(
