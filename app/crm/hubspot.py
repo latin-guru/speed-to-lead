@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 
 from app.crm.base import CRMError, NotConfigured
+from app.crm.mapping import contact_properties, deal_properties
 from app.security.outbound import check_url
 
 BASE_URL = "https://api.hubapi.com"
@@ -49,6 +50,9 @@ def property_setup_request(object_type: str) -> tuple[str, str, dict[str, Any]]:
 
 class HubSpotAdapter:
     name = "hubspot"
+
+    map_contact = staticmethod(contact_properties)
+    map_deal = staticmethod(deal_properties)
 
     def __init__(
         self,

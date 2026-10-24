@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from app.crm.base import CRMError
 from app.crm.hubspot import EXTERNAL_ID_PROPERTY
+from app.crm.mapping import contact_properties, deal_properties
 
 UPSERT_DEALS = "/crm/v3/objects/deals/batch/upsert"
 
@@ -32,6 +33,9 @@ class MockHubSpotAdapter:
     """MOCK: keeps contacts and deals in memory. Nothing is sent anywhere."""
 
     name = "MOCK-hubspot"
+
+    map_contact = staticmethod(contact_properties)
+    map_deal = staticmethod(deal_properties)
 
     def __init__(self) -> None:
         self.contacts: dict[str, MockRecord] = {}

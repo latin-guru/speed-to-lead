@@ -142,11 +142,12 @@ def test_run_crm_sync_twice_updates_same_records(session: Session) -> None:
 
 def test_factory() -> None:
     assert isinstance(build_crm_adapter(make_settings()), MockHubSpotAdapter)
+    assert isinstance(build_crm_adapter(make_settings(crm_provider="mock")), MockHubSpotAdapter)
     assert build_crm_adapter(make_settings(crm_provider="none")) is None
     with pytest.raises(NotConfigured):
-        build_crm_adapter(make_settings(crm_provider="hubspot"))
+        build_crm_adapter(make_settings(crm_provider="hubspot", crm_mock=False))
     real = build_crm_adapter(
-        make_settings(crm_provider="hubspot", hubspot_token=SecretStr("pat-test"))
+        make_settings(crm_provider="hubspot", crm_mock=False, hubspot_token=SecretStr("pat-test"))
     )
     assert isinstance(real, HubSpotAdapter)
 

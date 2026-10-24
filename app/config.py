@@ -126,8 +126,19 @@ class Settings(BaseSettings):
     demo_base_url: str | None = None
 
     # CRM sync: mock (default, in-process, no network) | hubspot (skeleton) | none
-    crm_provider: Literal["mock", "hubspot", "none"] = "mock"
+    # CRM sync: which CRM (hubspot | gohighlevel | salesforce | none), and whether to use its
+    # in-memory MOCK (default) or the real API skeleton. "mock" means hubspot + CRM_MOCK.
+    crm_provider: Literal["hubspot", "gohighlevel", "salesforce", "none", "mock"] = "hubspot"
+    crm_mock: bool = True
     hubspot_token: SecretStr | None = None
+    ghl_token: SecretStr | None = None
+    ghl_location_id: str | None = None
+    ghl_pipeline_id: str | None = None
+    # "new=<stage id>,qualified=<id>,contacted=<id>,won=<id>,lost=<id>"
+    ghl_stage_ids: str = ""
+    salesforce_instance_url: str | None = None  # https://<my-domain>.my.salesforce.com
+    salesforce_access_token: SecretStr | None = None
+    salesforce_api_version: str = Field(default="v61.0", pattern=r"^v\d{2,3}\.0$")
 
     @model_validator(mode="after")
     def _check_timezone(self) -> Settings:
@@ -149,9 +160,13 @@ class Settings(BaseSettings):
     def _check_outbound_urls(self) -> Settings:
         from app.security.outbound import OutboundURLError, check_url
 
-        for name in ("anthropic_base_url", "xai_base_url"):
+        for name in ("anthropic_base_url", "xai_base_url", "salesforce_instance_url"):
+            value = getattr(self, name)
+            if name == "salesforce_instance_url" and not (value or "").strip():
+                self.salesforce_instance_url = None  # empty in .env means "not set"
+                continue
             try:
-                setattr(self, name, check_url(getattr(self, name)))
+                setattr(self, name, check_url(value))
             except OutboundURLError as exc:
                 raise ValueError(f"{name.upper()}: {exc}") from exc
         return self
