@@ -331,6 +331,42 @@ class UserSession(Base):
     user: Mapped[User] = relationship(lazy="joined")
 
 
+class InterviewInvite(Base):
+    """A single-use, short-lived link (``/try/<token>``) for Interview mode.
+
+    Only a SHA-256 of the token is stored, so the database never holds a usable link. The
+    visitor who uses it gets a separate random view token (cookie); only its hash is kept
+    too. ``email_result`` records what happened to the one email the invite allows:
+    ``sent`` (real sender) or ``mock:<reason>`` (disabled, or a cap was reached).
+    """
+
+    __tablename__ = "interview_invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    label: Mapped[str | None] = mapped_column(String(80))
+    created_by: Mapped[str] = mapped_column(String(254))
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    viewer_hash: Mapped[str | None] = mapped_column(String(64))
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), index=True
+    )
+    email_result: Mapped[str | None] = mapped_column(String(32))
+    email_sent_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+    def status(self, now: datetime) -> str:
+        if self.revoked_at is not None:
+            return "revoked"
+        if self.used_at is not None:
+            return "used"
+        if self.expires_at <= now:
+            return "expired"
+        return "active"
+
+
 class AuditEvent(Base):
     """Who did what, when. Summaries never hold contact details; IPs are stored as a keyed
     hash, so events from one address can be grouped without keeping the address."""
