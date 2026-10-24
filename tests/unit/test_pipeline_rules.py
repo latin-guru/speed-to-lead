@@ -37,8 +37,8 @@ def _lead(session: Session, stage: LeadStage = S.NEW) -> Lead:
 
 def test_every_stage_has_rules_and_terminal_stages_are_final() -> None:
     assert set(ALLOWED_TRANSITIONS) == set(LeadStage)
-    assert ALLOWED_TRANSITIONS[S.WON] == frozenset()
-    assert ALLOWED_TRANSITIONS[S.LOST] == frozenset()
+    assert ALLOWED_TRANSITIONS[S.WON] == frozenset()  # won is final
+    assert ALLOWED_TRANSITIONS[S.LOST] == frozenset({S.QUALIFIED})  # reopen only
     for targets in ALLOWED_TRANSITIONS.values():
         assert S.NEW not in targets  # nothing goes back to new
 
@@ -55,7 +55,10 @@ def test_every_stage_has_rules_and_terminal_stages_are_final() -> None:
         (S.CONTACTED, S.QUALIFIED, False),
         (S.CONTACTED, S.WON, True),
         (S.WON, S.LOST, False),
-        (S.LOST, S.QUALIFIED, False),
+        (S.LOST, S.QUALIFIED, True),  # reopen (reason required)
+        (S.LOST, S.CONTACTED, False),
+        (S.LOST, S.WON, False),
+        (S.WON, S.QUALIFIED, False),
     ],
 )
 def test_transition_map(src: LeadStage, dst: LeadStage, ok: bool) -> None:
@@ -126,3 +129,32 @@ def test_log_human_contact(session: Session) -> None:
     assert lead.stage == "new"  # logging contact does not move the stage
     with pytest.raises(TransitionError):
         log_human_contact(session, lead, actor="ai:grok", channel="call", now=T0, note=None)
+
+
+def test_reopen_lost_needs_a_reason_and_is_audited(session: Session) -> None:
+    lead = _lead(session)
+    move_stage(session, lead, S.LOST, actor="human:dana", now=T0, reason="went quiet")
+    with pytest.raises(TransitionError) as err:
+        move_stage(session, lead, S.QUALIFIED, actor="human:dana", now=T0, reason="  ")
+    assert err.value.code == "reason_required"
+    move_stage(session, lead, S.QUALIFIED, actor="human:lee", now=T0, reason="called back")
+    session.flush()
+    assert lead.stage == "qualified"
+    assert lead.lost_reason is None
+    reopened = session.scalars(
+        select(Activity).where(Activity.lead_id == lead.id, Activity.kind == "lead_reopened")
+    ).one()
+    assert reopened.actor == "human:lee"
+    assert reopened.detail == {"reason": "called back", "previous_lost_reason": "went quiet"}
+    assert lead.sequence_state == "stopped"  # automation does not restart on reopen
+    # The CRM sync for "qualified" runs again (a new key per reopen), and so would "lost".
+    keys = set(session.scalars(select(Job.idempotency_key).where(Job.kind == "crm_sync")))
+    assert keys == {
+        f"crm_sync:{lead.id}:lost",
+        f"crm_sync:{lead.id}:qualified:r1",
+    }
+    move_stage(session, lead, S.LOST, actor="human:lee", now=T0, reason="chose a competitor")
+    session.flush()
+    assert f"crm_sync:{lead.id}:lost:r1" in set(
+        session.scalars(select(Job.idempotency_key).where(Job.kind == "crm_sync"))
+    )

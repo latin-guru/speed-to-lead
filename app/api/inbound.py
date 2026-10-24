@@ -4,6 +4,8 @@
 ``INBOUND_WEBHOOK_SECRET``. Body: ``{"message_id": ..., "from": "+1...", "body": ...}``.
 
 - A STOP-style keyword opts the number out and cancels every pending send for it.
+- START or UNSTOP opts it back in: sends are allowed again from now on, but the steps the
+  opt-out cancelled are not brought back.
 - Any other reply means a person is talking to us: pause automation and hand off.
 - Each ``message_id`` is processed once.
 """
@@ -23,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import webhook_rate_limit
 from app.config import Settings
-from app.followups.engine import is_stop_keyword, opt_out
+from app.followups.engine import is_start_keyword, is_stop_keyword, opt_in, opt_out
 from app.models import Lead, WebhookEvent, utcnow
 from app.schemas import InboundReplyIn
 from app.security.signatures import verify_signature
@@ -53,6 +55,11 @@ def _process(session: Session, reply: InboundReplyIn, phone: str) -> str:
         leads = opt_out(session, phone, now=now, source="inbound:sms")
         outcome = "opted_out" if leads else "unmatched"
         event.lead_id = leads[0].id if leads else None
+    elif is_start_keyword(reply.body):
+        known = session.scalar(select(Lead.id).where(Lead.phone == phone).limit(1))
+        changed = opt_in(session, phone, now=now, source="inbound:sms")
+        outcome = "opted_in" if changed else ("not_opted_out" if known else "unmatched")
+        event.lead_id = changed[0].id if changed else known
     else:
         lead = session.scalars(
             select(Lead).where(Lead.phone == phone).order_by(Lead.created_at.desc()).limit(1)

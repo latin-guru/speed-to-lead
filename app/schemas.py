@@ -162,6 +162,7 @@ class TaskOut(BaseModel):
     status: str
     created_at: datetime
     done_at: datetime | None
+    resumed_sends: int | None = None  # set when this update resumed the sequence
 
 
 class TaskUpdateIn(BaseModel):
@@ -169,6 +170,16 @@ class TaskUpdateIn(BaseModel):
 
     status: Literal["open", "done"] | None = None
     assignee: str | None = Field(default=None, pattern=r"^[a-z0-9_.\-]{1,24}$")
+    # Closing a handoff task can hand the lead back to automation. Needs status="done"
+    # and an actor (it is logged on the timeline).
+    resume_sequence: bool = False
+    actor: ActorName | None = None
+
+    @model_validator(mode="after")
+    def _resume_rules(self) -> TaskUpdateIn:
+        if self.resume_sequence and (self.status != "done" or self.actor is None):
+            raise ValueError("resume_sequence needs status='done' and an actor")
+        return self
 
 
 class JobOut(BaseModel):

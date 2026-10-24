@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 import httpx
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import Settings
@@ -15,7 +16,7 @@ from app.crm.mapping import contact_properties, deal_properties
 from app.crm.mock import MockHubSpotAdapter
 from app.jobs import kinds
 from app.jobs.queue import enqueue
-from app.models import Lead
+from app.models import Activity, Lead
 from app.services.timeline import add_activity
 
 
@@ -35,11 +36,16 @@ def enqueue_crm_sync(
 ) -> bool:
     if not enabled:
         return False
+    reopens = session.scalar(
+        select(func.count(Activity.id)).where(
+            Activity.lead_id == lead.id, Activity.kind == "lead_reopened"
+        )
+    )
     return enqueue(
         session,
         kinds.CRM_SYNC,
         {"lead_id": str(lead.id), "stage": lead.stage},
-        idempotency_key=kinds.crm_key(lead.id, lead.stage),
+        idempotency_key=kinds.crm_key(lead.id, lead.stage, int(reopens or 0)),
         max_attempts=max_attempts,
         lead_id=lead.id,
         now=now,
@@ -51,9 +57,11 @@ def run_crm_sync(
 ) -> str:
     """Push the lead's *current* state. Safe to run any number of times.
 
-    If the job fails after the contact call, the ids are rolled back with the job. The retry
-    then upserts the contact again, which matches by email instead of creating a duplicate
-    (HubSpot treats email as the contact's unique key; the MOCK does the same).
+    If the job fails after a CRM call, the ids are rolled back with the job. The retry then
+    upserts again, and neither record is duplicated: contacts match by email (HubSpot's
+    unique contact key), and deals are upserted by the unique ``external_lead_id`` property
+    (our lead id), so a retried job updates the deal it already created. The MOCK enforces
+    the same uniqueness.
     """
     lead = session.get(Lead, lead_id)
     if lead is None:

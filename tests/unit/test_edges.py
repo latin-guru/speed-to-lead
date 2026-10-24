@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from app.ai.schemas import NextStep, ScoreResult
 from app.ai.service import ScoreOutcome
 from app.db import UTCDateTime, init_db, make_engine, make_session_factory, utc
-from app.followups.engine import is_stop_keyword, pause_sequence, stop_sequence
+from app.followups.engine import (
+    is_start_keyword,
+    is_stop_keyword,
+    pause_sequence,
+    stop_sequence,
+)
 from app.models import Lead, Task
 from app.schemas import LeadIn
 from app.services.scoring import score_lead
@@ -56,6 +61,10 @@ def test_stop_keywords() -> None:
         assert is_stop_keyword(body)
     for body in ("please stop calling after 5", "stopping by later", ""):
         assert not is_stop_keyword(body)
+    for body in ("START", " unstop. ", "Start!"):
+        assert is_start_keyword(body)
+        assert not is_stop_keyword(body)
+    assert not is_start_keyword("start over please")
 
 
 @pytest.fixture

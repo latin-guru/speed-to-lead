@@ -10,7 +10,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.followups.guards import (
@@ -26,12 +26,14 @@ from app.followups.sequence import Channel, Sequence, render
 from app.followups.wording import call_phrase, received_phrase
 from app.jobs import kinds
 from app.jobs.queue import Deferred, PermanentJobError, cancel_pending, enqueue
-from app.models import Lead, LeadStage, OutboxMessage, SequenceState
+from app.models import Job, JobStatus, Lead, LeadStage, OutboxMessage, SequenceState
 from app.services.timeline import add_activity
 
 log = logging.getLogger(__name__)
 
 STOP_KEYWORDS = frozenset({"stop", "stopall", "unsubscribe", "cancel", "end", "quit"})
+START_KEYWORDS = frozenset({"start", "unstop"})
+HANDOFF_CANCEL_PREFIX = "handoff:"
 # A human has the lead, or it is closed: automation stops for good.
 STOPPING_STAGES = frozenset({LeadStage.CONTACTED, LeadStage.WON, LeadStage.LOST})
 
@@ -95,8 +97,112 @@ def pause_sequence(session: Session, lead: Lead, reason: str, *, now: datetime) 
     return _halt(session, lead, SequenceState.PAUSED, reason, now)
 
 
+class ResumeError(ValueError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+def resume_sequence(session: Session, lead: Lead, *, actor: str, now: datetime) -> int:
+    """A human hands the lead back to automation after a handoff.
+
+    Re-queues the follow-up steps the handoff cancelled and that never went out. Overdue
+    steps become due now; every guard (window, caps, gap, kill switch) still applies when
+    they run. Returns how many steps were re-queued. The caller commits.
+    """
+    if lead.opted_out_at is not None:
+        raise ResumeError("opted_out", "the lead opted out; automation cannot resume")
+    if lead.stage in STOPPING_STAGES:
+        raise ResumeError("stage_final", f"lead is {lead.stage}; automation stays stopped")
+    if lead.sequence_state != SequenceState.PAUSED.value:
+        raise ResumeError("not_paused", f"sequence is {lead.sequence_state}, not paused")
+    sent_steps = select(OutboxMessage.step).where(OutboxMessage.lead_id == lead.id)
+    jobs = list(
+        session.scalars(
+            select(Job).where(
+                Job.lead_id == lead.id,
+                Job.kind == kinds.FOLLOWUP_SEND,
+                Job.status == JobStatus.CANCELLED.value,
+                Job.last_error.startswith(HANDOFF_CANCEL_PREFIX),
+            )
+        )
+    )
+    sent = set(session.scalars(sent_steps))
+    requeued = 0
+    for job in jobs:
+        if job.payload.get("step") in sent:
+            continue
+        session.execute(
+            update(Job)
+            .where(Job.id == job.id, Job.status == JobStatus.CANCELLED.value)
+            .values(
+                status=JobStatus.QUEUED.value,
+                run_at=max(job.run_at, now),
+                attempts=0,
+                last_error=None,
+                updated_at=now,
+            )
+        )
+        requeued += 1
+    lead.sequence_state = SequenceState.ACTIVE.value
+    add_activity(session, lead, "sequence_resumed", actor, {"requeued_sends": requeued})
+    return requeued
+
+
+def _keyword(body: str) -> str:
+    return body.strip().strip(".!").lower()
+
+
 def is_stop_keyword(body: str) -> bool:
-    return body.strip().strip(".!").lower() in STOP_KEYWORDS
+    return _keyword(body) in STOP_KEYWORDS
+
+
+def is_start_keyword(body: str) -> bool:
+    return _keyword(body) in START_KEYWORDS
+
+
+def opt_in(session: Session, phone: str, *, now: datetime, source: str) -> list[Lead]:
+    """START / UNSTOP: clear the opt-out for every lead with this number.
+
+    Sends are allowed again *from now on*: steps cancelled by the opt-out are not brought
+    back, and each lead's sequence stays stopped. New leads from this number, or a human
+    choosing to follow up, can reach the person again. Returns the leads that changed.
+    """
+    changed = list(
+        session.scalars(select(Lead).where(Lead.phone == phone, Lead.opted_out_at.is_not(None)))
+    )
+    for lead in changed:
+        add_activity(
+            session,
+            lead,
+            "opted_in",
+            source,
+            {
+                "channel": "sms",
+                "opted_out_at": lead.opted_out_at.isoformat() if lead.opted_out_at else None,
+                "backfill": False,
+            },
+        )
+        lead.opted_out_at = None
+    return changed
+
+
+def person_opted_out(session: Session, lead: Lead) -> bool:
+    """True if this lead, or any other lead with the same phone, has opted out.
+
+    STOP applies to the number, so a new form from an opted-out number does not restart
+    texts or emails until the person sends START.
+    """
+    if lead.opted_out_at is not None:
+        return True
+    if not lead.phone:
+        return False
+    other = session.scalar(
+        select(Lead.id)
+        .where(Lead.phone == lead.phone, Lead.opted_out_at.is_not(None), Lead.id != lead.id)
+        .limit(1)
+    )
+    return other is not None
 
 
 def opt_out(session: Session, phone: str, *, now: datetime, source: str) -> list[Lead]:
@@ -142,7 +248,9 @@ def send_step(
     if session.scalar(select(OutboxMessage.id).where(OutboxMessage.idempotency_key == key)):
         return "already_sent"
 
-    stop_reason = _stop_reason(lead, step.channel)
+    stop_reason = (
+        "opted_out" if person_opted_out(session, lead) else _stop_reason(lead, step.channel)
+    )
     if stop_reason:
         add_activity(
             session, lead, "followup_skipped", "system", {"step": step.id, "reason": stop_reason}
@@ -227,8 +335,6 @@ def send_step(
 
 
 def _stop_reason(lead: Lead, channel: Channel) -> str:
-    if lead.opted_out_at is not None:
-        return "opted_out"
     if lead.stage in STOPPING_STAGES:
         return f"stage_{lead.stage}"
     if lead.sequence_state != SequenceState.ACTIVE.value:

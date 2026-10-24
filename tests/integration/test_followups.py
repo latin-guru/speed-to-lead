@@ -295,6 +295,49 @@ def test_stop_reply_opts_out_and_cancels_pending(
     assert _inbound(c, "STOP").json() == {"outcome": "duplicate"}  # same message_id
 
 
+def test_start_opts_back_in_going_forward_only(
+    env: tuple[FastAPI, TestClient], clock: FixedClock
+) -> None:
+    app, c = env
+    lead_id = seed_lead(app, clock)
+    worker = make_worker(app, clock)
+    worker.run_until_idle()
+    assert _inbound(c, "STOP", mid="m1").json() == {"outcome": "opted_out"}
+
+    # STOP applies to the number: a new form from it gets no messages until START.
+    clock.advance(hours=2)
+    again = seed_lead(app, clock, email="jordan.new@example.com")
+    worker.run_until_idle()
+    assert [m.lead_id for m in _outbox(app)].count(again) == 0
+    assert "followup_skipped" in _kinds(app, again)
+
+    assert _inbound(c, "unstop!", mid="m2").json() == {"outcome": "opted_in"}
+    assert _lead(app, lead_id).opted_out_at is None
+    assert _lead(app, lead_id).sequence_state == "stopped"  # nothing restarts on its own
+    with app.state.session_factory() as s:
+        act = s.scalars(
+            select(Activity).where(Activity.lead_id == lead_id, Activity.kind == "opted_in")
+        ).one()
+        assert act.actor == "inbound:sms"
+        assert act.detail["backfill"] is False
+        cancelled = s.scalars(
+            select(Job.status).where(Job.lead_id == lead_id, Job.kind == "followup_send")
+        ).all()
+    assert sorted(cancelled) == ["cancelled", "cancelled", "done", "done"]  # no backfill
+
+    clock.advance(days=4)
+    worker.run_until_idle()
+    assert (lead_id, "reminder_1d") not in [(m.lead_id, m.step) for m in _outbox(app)]
+    # Going forward: the next new lead from this number is reachable again.
+    fresh = seed_lead(app, clock, email="jordan.fresh@example.com")
+    worker.run_until_idle()
+    assert {m.step for m in _outbox(app) if m.lead_id == fresh} == {"ack_sms", "ack_email"}
+
+    assert _inbound(c, "START", mid="m3").json() == {"outcome": "not_opted_out"}
+    assert _inbound(c, "START", mid="m4", phone="+12025550188").json() == {"outcome": "unmatched"}
+    assert "handoff" not in _kinds(app, fresh)  # a keyword is not a conversation
+
+
 def test_stop_beats_an_already_running_send(
     env: tuple[FastAPI, TestClient], clock: FixedClock
 ) -> None:

@@ -24,6 +24,11 @@ def send_key(lead_id: uuid.UUID, step: str) -> str:
     return f"{lead_id}:{step}"
 
 
-def crm_key(lead_id: uuid.UUID, stage: str) -> str:
-    # Stages only move forward (see app.services.pipeline), so one sync per stage is enough.
-    return f"{CRM_SYNC}:{lead_id}:{stage}"
+def crm_key(lead_id: uuid.UUID, stage: str, revision: int = 0) -> str:
+    """One sync per stage *per reopen*: a reopened lead can reach the same stage again.
+
+    ``revision`` is how many times the lead was reopened (0 for most leads, which keeps
+    their keys unchanged).
+    """
+    base = f"{CRM_SYNC}:{lead_id}:{stage}"
+    return f"{base}:r{revision}" if revision else base

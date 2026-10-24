@@ -3,7 +3,10 @@
 Rules:
 
 - Moves follow ``ALLOWED_TRANSITIONS``; anything else is rejected.
-- ``lost`` needs a reason. ``won`` and ``lost`` are final.
+- ``lost`` needs a reason. ``won`` is final.
+- A ``lost`` lead can be reopened to ``qualified`` (an operator action, with a required
+  reason). The reopen is logged as its own ``lead_reopened`` activity; automation stays
+  stopped (a human is working the lead).
 - Only a human (``actor="human:<name>"``) can move a stage. The AI scorer writes a
   *suggested* ``next_step`` and nothing else; there is deliberately no code path from a
   score to a stage change.
@@ -26,7 +29,7 @@ ALLOWED_TRANSITIONS: dict[LeadStage, frozenset[LeadStage]] = {
     LeadStage.QUALIFIED: frozenset({LeadStage.CONTACTED, LeadStage.WON, LeadStage.LOST}),
     LeadStage.CONTACTED: frozenset({LeadStage.WON, LeadStage.LOST}),
     LeadStage.WON: frozenset(),
-    LeadStage.LOST: frozenset(),
+    LeadStage.LOST: frozenset({LeadStage.QUALIFIED}),  # reopen, reason required
 }
 
 HUMAN_PREFIX = "human:"
@@ -68,10 +71,16 @@ def move_stage(
     reason = (reason or "").strip() or None
     if target == LeadStage.LOST and not reason:
         raise TransitionError("reason_required", "a reason is required to mark a lead lost")
+    reopening = current == LeadStage.LOST
+    if reopening and not reason:
+        raise TransitionError("reason_required", "a reason is required to reopen a lost lead")
 
     lead.stage = target.value
+    previous_lost_reason = lead.lost_reason
     if target == LeadStage.LOST:
         lead.lost_reason = reason
+    if reopening:
+        lead.lost_reason = None
     activity = add_activity(
         session,
         lead,
@@ -79,6 +88,14 @@ def move_stage(
         actor,
         {"from": current.value, "to": target.value, "reason": reason},
     )
+    if reopening:
+        add_activity(
+            session,
+            lead,
+            "lead_reopened",
+            actor,
+            {"reason": reason, "previous_lost_reason": previous_lost_reason},
+        )
     if target == LeadStage.CONTACTED:
         record_first_response(lead, now)
     if target in STOPPING_STAGES:
