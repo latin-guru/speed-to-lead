@@ -31,3 +31,6 @@ htmlcov/
 
 # Scan tooling downloaded locally
 .tools/
+
+# Demo database (python -m app.demo)
+demo.db*

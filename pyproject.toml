@@ -1,7 +1,7 @@
 [project]
 name = "speed-to-lead"
-version = "0.3.0"
-description = "Lead capture, AI scoring, job queue and guarded follow-ups for a fictional home-services company."
+version = "0.4.0"
+description = "Lead capture, AI scoring, job queue, guarded follow-ups and an operator dashboard for a fictional home-services company."
 requires-python = ">=3.11"
 license = { text = "MIT" }
 # Pinned dependencies live in requirements.txt / requirements-dev.txt.
@@ -18,6 +18,7 @@ ignore = ["S101"]  # assert is fine in tests
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S105", "S106", "S311"]
 "scripts/**" = ["T201"]
+"app/demo/**" = ["S311"]  # seeded pseudo-random fake data, not security
 
 [tool.mypy]
 python_version = "3.11"

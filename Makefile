@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: install test lint typecheck migrate run worker scan check
+.PHONY: install test lint typecheck migrate run worker demo demo-seed scan check
 
 install:
 	python3.11 -m venv .venv
@@ -25,6 +25,13 @@ run: migrate
 
 worker: migrate
 	$(PY) -m app.worker
+
+# Live demo: fresh fake data in ./demo.db, worker + lead simulator in the web process.
+demo:
+	$(PY) -m app.demo
+
+demo-seed:
+	$(PY) -m app.demo --seed-only
 
 scan:
 	.venv/bin/detect-secrets scan --all-files --exclude-files '^\.venv/' --exclude-files '^\.git/'
