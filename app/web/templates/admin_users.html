@@ -8,7 +8,7 @@
 {% if locked_writes %}<p class="callout" role="note">Demo mode: the demo accounts are shared, so user changes are turned off.</p>{% endif %}
 <div class="card table-wrap">
   <table class="data">
-    <thead><tr><th scope="col">Email</th><th scope="col">Role and status</th><th scope="col">Sign-in</th><th scope="col">Reset password</th></tr></thead>
+    <thead><tr><th scope="col">Email</th><th scope="col">Role and status</th><th scope="col">Sign-in</th><th scope="col">Two-factor</th><th scope="col">Reset password</th></tr></thead>
     <tbody>
     {% for u in users %}
       <tr>
@@ -34,6 +34,16 @@
           </form>
           {% endif %}
           <span class="muted">last login {{ local(u.last_login_at) or 'never' }}</span>
+        </td>
+        <td class="small">
+          {% if u.mfa_enabled %}on
+            {% if user.user_id != u.id %}
+            <form method="post" action="/dashboard/admin/users/{{ u.id }}/2fa-reset">
+              <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+              <button type="submit" class="btn btn-quiet">Reset two-factor</button>
+            </form>
+            {% endif %}
+          {% elif u.role == 'viewer' %}<span class="muted">n/a</span>{% else %}off{% endif %}
         </td>
         <td>
           <form method="post" action="/dashboard/admin/users/{{ u.id }}/password" class="inline-form">

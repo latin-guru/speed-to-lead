@@ -22,7 +22,9 @@ from app.demo.simulator import Simulator
 from app.followups.guards import SendWindow
 from app.jobs.handlers import JobContext
 from app.models import Lead, User, UserRole, utcnow
+from app.security import totp
 from app.security.passwords import hash_password
+from app.services import mfa
 from app.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -60,8 +62,10 @@ def reseed(settings: Settings, engine: Engine, sf: sessionmaker[Session]) -> See
 def seed_demo_users(settings: Settings, sf: sessionmaker[Session]) -> list[str]:
     """``<role>@example.com`` for each DEMO_ROLES entry, all with the public demo password.
 
-    About a third of the leads are assigned to the demo rep, so logging in as the rep shows
-    both sides of the rule: their own leads (contact details can be revealed) and the rest.
+    The demo admin has two-factor on with a public secret; the code step shows its current
+    code, so the real flow can be tried without an authenticator app. About a third of the
+    leads are assigned to the demo rep, so logging in as the rep shows both sides of the
+    rule: their own leads (contact details can be revealed) and the rest.
     """
     assert settings.demo_password is not None  # the demo validator fills it
     password = settings.demo_password.get_secret_value()
@@ -80,6 +84,9 @@ def seed_demo_users(settings: Settings, sf: sessionmaker[Session]) -> list[str]:
             emails.append(email)
         session.add_all(users.values())
         session.flush()
+        admin = users.get("admin")
+        if admin is not None:  # real two-factor, with a public secret (its code is shown)
+            mfa.enable_with_secret(session, admin, totp.demo_secret(), now=utcnow())
         rep = users.get("rep")
         if rep is not None:
             lead_ids = sorted(session.scalars(select(Lead.id)), key=str)

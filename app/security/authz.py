@@ -68,6 +68,7 @@ class Principal:
     user_id: int | None = None
     session_id: int | None = None
     session_hash: str | None = None  # binds CSRF tokens to this session
+    mfa_enabled: bool = False
 
     @property
     def name(self) -> str:

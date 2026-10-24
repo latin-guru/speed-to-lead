@@ -3,7 +3,8 @@
 - ``Lead``, ``Activity`` (timeline), ``WebhookEvent`` (idempotency ledger)  - session 1
 - ``Job`` (DB-backed queue), ``OutboxMessage`` (mock sends), ``Task`` (human handoff),
   ``SystemFlag`` (kill switch)                                                - session 3
-- ``User``, ``UserSession`` (server-side login sessions), ``AuditEvent``      - session 5
+- ``User``, ``UserSession`` (server-side login sessions), ``AuditEvent``,
+  ``RecoveryCode`` (two-factor)                                               - session 5
 
 The schema is owned by Alembic; keep ``migrations/versions`` in step with this file
 (``tests/integration/test_migrations.py`` fails if they drift).
@@ -280,12 +281,34 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime())
     last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    # Two-factor (TOTP). Secrets are encrypted with the field-encryption key. ``pending`` is
+    # a secret being enrolled (not active until a code from it is confirmed).
+    totp_secret_enc: Mapped[str | None] = mapped_column(Text)
+    totp_pending_enc: Mapped[str | None] = mapped_column(Text)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    totp_last_step: Mapped[int | None] = mapped_column(Integer)  # replay protection
+
+    @property
+    def mfa_enabled(self) -> bool:
+        return self.totp_enabled_at is not None and self.totp_secret_enc is not None
 
     @property
     def actor_name(self) -> str:
         """Short name for the lead timeline (``human:<name>``), from the email's local part."""
         local = re.sub(r"[^a-z0-9_.\-]", "", self.email.split("@", 1)[0].lower())[:24]
         return local or f"user{self.id}"
+
+
+class RecoveryCode(Base):
+    """A single-use two-factor recovery code. Only a SHA-256 of the code is stored."""
+
+    __tablename__ = "recovery_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
 
 class UserSession(Base):

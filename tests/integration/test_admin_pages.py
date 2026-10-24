@@ -133,7 +133,11 @@ def test_unlock_and_reset_password(web: TestClient) -> None:
 
 def test_demo_mode_turns_user_changes_off(tmp_path: object) -> None:
     for c in make_client(demo_mode=True, demo_leads=0, database_url="sqlite://"):
-        assert login(c, password=DEFAULT_DEMO_PASSWORD).status_code == 303
+        from app.security.totp import demo_secret
+        from tests.web_helpers import pass_2fa
+
+        r = pass_2fa(c, login(c, password=DEFAULT_DEMO_PASSWORD), demo_secret())
+        assert r.status_code == 303
         page = c.get("/dashboard/admin/users").text
         assert "user changes are turned off" in page
         rep = _user(c, ROLE_EMAILS[UserRole.REP])

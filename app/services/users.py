@@ -96,6 +96,15 @@ def create_user(session: Session, email: str, password: str, role: UserRole | st
     return user
 
 
+def register_failure(user: User, *, now: datetime, policy: LoginPolicy) -> bool:
+    """Count a failed login (password or two-factor code). True if it locked the account."""
+    user.failed_logins += 1
+    locked_now = user.failed_logins >= policy.max_failures
+    if locked_now:
+        user.locked_until = now + policy.lockout(user.failed_logins)
+    return locked_now
+
+
 def authenticate(
     session: Session, email: str, password: str, *, now: datetime, policy: LoginPolicy
 ) -> AuthResult:
@@ -111,14 +120,14 @@ def authenticate(
     if not user.active:
         return AuthResult(AuthOutcome.INACTIVE, user)
     if not matched:
-        user.failed_logins += 1
-        locked_now = user.failed_logins >= policy.max_failures
-        if locked_now:
-            user.locked_until = now + policy.lockout(user.failed_logins)
+        locked_now = register_failure(user, now=now, policy=policy)
         return AuthResult(AuthOutcome.BAD_PASSWORD, user, locked_now=locked_now)
-    user.failed_logins = 0
-    user.locked_until = None
-    user.last_login_at = now
+    if not user.mfa_enabled:
+        # With two-factor on, the count is only reset once the code is right too, so the
+        # password cannot be used to keep resetting the lockout while guessing codes.
+        user.failed_logins = 0
+        user.locked_until = None
+        user.last_login_at = now
     if passwords.needs_rehash(user.password_hash):
         user.password_hash = passwords.hash_password(password)
     return AuthResult(AuthOutcome.OK, user)

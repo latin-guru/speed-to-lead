@@ -24,6 +24,7 @@ from fastapi.templating import Jinja2Templates
 from app import __version__
 from app.api.deps import SessionDep, dashboard_principal
 from app.config import Settings
+from app.models import UserRole
 from app.security.authz import Permission, Principal, has
 from app.security.csrf import (
     CSRF_COOKIE,
@@ -34,6 +35,7 @@ from app.security.csrf import (
 )
 from app.security.sessions import cookie_secure
 
+ACCOUNT_PREFIX = "/dashboard/account"
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 # Vendored Chart.js (app/web/static/vendor, MIT). The SRI hash pins the exact file.
@@ -49,6 +51,14 @@ class LoginRequired(Exception):  # noqa: N818  (control flow)
     def __init__(self, next_path: str) -> None:
         super().__init__(next_path)
         self.next_path = next_path
+
+
+class MFASetupRequired(Exception):  # noqa: N818  (control flow)
+    """An admin without two-factor may only use the account page until they set it up."""
+
+
+def mfa_setup_redirect(request: Request, exc: Exception) -> Response:
+    return RedirectResponse("/dashboard/account?setup=required", status_code=303)
 
 
 class Forbidden(Exception):  # noqa: N818  (control flow)
@@ -83,6 +93,14 @@ def current_principal(request: Request, session: SessionDep) -> Principal:
         path = request.url.path + (f"?{request.url.query}" if request.url.query else "")
         raise LoginRequired(path if request.method == "GET" else "/dashboard")
     request.state.principal = found
+    settings: Settings = request.app.state.settings
+    if (
+        settings.admin_2fa_required
+        and found.role is UserRole.ADMIN
+        and not found.mfa_enabled
+        and not request.url.path.startswith(ACCOUNT_PREFIX)
+    ):
+        raise MFASetupRequired()
     return found
 
 

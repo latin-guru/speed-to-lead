@@ -17,7 +17,7 @@ from app.jobs import kinds
 from app.jobs.queue import release_deferred, retry_dead
 from app.models import Job, JobStatus, SystemFlag, User, UserRole, utcnow
 from app.security.authz import Permission, Principal
-from app.services import audit
+from app.services import audit, mfa
 from app.services.users import UserError, create_user, set_password, unlock, update_user
 from app.web.common import render, require, require_post
 
@@ -33,12 +33,14 @@ USER_ERRORS = {
     "duplicate": "A user with that email already exists.",
     "self_change": "You cannot change your own role or deactivate yourself.",
     "last_admin": "Keep at least one active admin.",
+    "self_reset": "Reset your own two-factor from your account page instead.",
 }
 USER_DONE = {
     "created": "User created.",
     "updated": "User updated. Their open sessions were ended.",
     "unlocked": "Account unlocked.",
     "password": "Password reset. Their open sessions were ended.",
+    "mfa_reset": "Two-factor reset. They set it up again at their next login.",
 }
 
 
@@ -126,6 +128,7 @@ def _settings_rows(settings: Settings, crm_name: str) -> list[tuple[str, str]]:
             f"{settings.session_ttl_hours}h / {settings.session_idle_minutes}m",
         ),
         ("Lockout after", f"{settings.login_max_failures} failed logins"),
+        ("Two-factor for admins", "required" if settings.admin_2fa_required else "optional"),
         ("Retention", f"{settings.retention_days} days ({settings.retention_mode})"),
         ("CORS origins", ", ".join(settings.cors_origins) or "none (CORS off)"),
         ("ADMIN_TOKEN (machine API)", is_set(settings.admin_token)),
@@ -360,6 +363,35 @@ async def user_password(
     )
     session.commit()
     return _user_redirect(done="password")
+
+
+@router.post("/users/{user_id}/2fa-reset")
+def user_mfa_reset(
+    user_id: int,
+    request: Request,
+    session: SessionDep,
+    principal: Annotated[Principal, Depends(require_post(Permission.MANAGE_USERS))],
+) -> Response:
+    """For a lost phone: clears the user's two-factor and recovery codes, ends sessions."""
+    if _demo_locked(request):
+        return _user_redirect("demo")
+    user = _target(session, user_id)
+    if user is None:
+        return _user_redirect("not_found")
+    if user.id == principal.user_id:
+        return _user_redirect("self_reset")
+    mfa.disable(session, user, now=utcnow())
+    audit.record_for(
+        session,
+        principal,
+        "mfa_reset",
+        request=request,
+        target_type="user",
+        target_id=user.id,
+        summary={"email": user.email},
+    )
+    session.commit()
+    return _user_redirect(done="mfa_reset")
 
 
 # --------------------------------------------------------------------------- audit log

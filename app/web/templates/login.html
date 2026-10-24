@@ -10,6 +10,7 @@
     <ul class="demo-accounts">
       {% for email, role in demo_accounts %}<li><code class="pick">{{ email }}</code> <span class="muted">{{ role }}</span></li>{% endfor %}
     </ul>
+    <p class="small">The demo admin has two-factor on: the next step shows its current code.</p>
   </div>
   {% endif %}
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}

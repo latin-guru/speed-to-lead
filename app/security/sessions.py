@@ -142,3 +142,41 @@ def revoke_all(db: Session, user_id: int, *, now: datetime) -> int:
         .values(revoked_at=now)
     )
     return int(getattr(result, "rowcount", 0) or 0)
+
+
+# --------------------------------------------------------------------------- two-factor step
+
+MFA_COOKIE = "stl_mfa"
+MFA_MAX_AGE_SECONDS = 300
+
+
+def _password_tag(user: User) -> str:
+    """Ties a pending login to the password it was made with (a reset kills it)."""
+    return hashlib.sha256(f"pw|{user.password_hash}".encode()).hexdigest()[:16]
+
+
+def issue_pending(key: bytes, user: User, *, now: datetime) -> str:
+    """After a correct password, before the second factor: ``<user>.<issued>.<tag>.<mac>``.
+
+    It only proves the password step for this user for five minutes; it is not a session
+    and opens nothing but the code prompt.
+    """
+    payload = f"{user.id}.{int(now.timestamp())}.{_password_tag(user)}"
+    mac = hmac.new(key, f"mfa-pending|{payload}".encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{payload}.{mac}"
+
+
+def read_pending(db: Session, key: bytes, cookie: str | None, *, now: datetime) -> User | None:
+    if not cookie or cookie.count(".") != 3 or len(cookie) > 200:
+        return None
+    user_id, issued, tag, mac = cookie.split(".")
+    payload = f"{user_id}.{issued}.{tag}"
+    expected = hmac.new(key, f"mfa-pending|{payload}".encode(), hashlib.sha256).hexdigest()[:32]
+    if not hmac.compare_digest(expected, mac) or not (user_id.isdigit() and issued.isdigit()):
+        return None
+    if not 0 <= now.timestamp() - int(issued) <= MFA_MAX_AGE_SECONDS:
+        return None
+    user = db.get(User, int(user_id))
+    if user is None or not user.active or not hmac.compare_digest(_password_tag(user), tag):
+        return None
+    return user

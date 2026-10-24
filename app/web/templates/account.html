@@ -1,0 +1,52 @@
+{% extends "dash_base.html" %}
+{% block title %}Your account{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Your account</h1><p class="muted">{{ account.email }} · {{ account.role }}</p></div></div>
+{% if setup_required %}<p class="error" role="alert">Admins must turn on two-factor before using the dashboard. Set it up below.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<section class="grid">
+  <article class="card">
+    <h2>Two-factor authentication</h2>
+    {% if not can_enroll %}
+    <p class="muted">Two-factor is not offered for the {{ account.role }} role (read-only).</p>
+    {% elif codes %}
+    <p class="notice" role="status">Two-factor is on. Save these recovery codes now; they are shown only once and each works once.</p>
+    <ul class="codes">{% for c in codes %}<li><code class="pick">{{ c }}</code></li>{% endfor %}</ul>
+    <p><a href="/dashboard">Continue to the dashboard</a></p>
+    {% elif enrolling %}
+    <p>Scan this with an authenticator app, then enter the 6-digit code it shows.</p>
+    <img class="qr" src="{{ enrolling.qr }}" alt="QR code for your authenticator app" width="220" height="220">
+    <p class="small muted">Can't scan? Enter this key: <code class="pick">{{ enrolling.secret }}</code></p>
+    <form method="post" action="/dashboard/account/2fa/confirm" class="stack">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <label for="code">Code from the app</label>
+      <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+      <button type="submit" class="btn">Turn on two-factor</button>
+    </form>
+    {% elif account.mfa_enabled %}
+    <p>Status: <strong>on</strong> since {{ local(account.totp_enabled_at) }} · {{ remaining }} recovery codes left.</p>
+    <form method="post" action="/dashboard/account/2fa/recovery-codes" class="inline-form">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <label class="sr-only" for="regen-code">Current code</label>
+      <input id="regen-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="current code" required>
+      <button type="submit" class="btn btn-quiet">New recovery codes</button>
+    </form>
+    {% if not required %}
+    <form method="post" action="/dashboard/account/2fa/disable" class="inline-form">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <label class="sr-only" for="off-code">Current code</label>
+      <input id="off-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="current code" required>
+      <button type="submit" class="btn btn-quiet">Turn off two-factor</button>
+    </form>
+    {% else %}<p class="small muted">Required for admins, so it stays on.</p>{% endif %}
+    {% else %}
+    <p>Status: <strong>off</strong>.{% if required %} Required for your role.{% else %} Optional for your role.{% endif %}</p>
+    {% if demo_locked %}<p class="small muted">The shared demo accounts cannot change their two-factor settings.</p>{% endif %}
+    <form method="post" action="/dashboard/account/2fa/start">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <button type="submit" class="btn">Set up two-factor</button>
+    </form>
+    {% endif %}
+  </article>
+</section>
+{% endblock %}

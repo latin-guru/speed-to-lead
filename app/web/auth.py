@@ -8,10 +8,12 @@ per-account lockout. See ``app.services.users`` and ``app.security.sessions``.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy.orm import Session
 
 from app.api.deps import (
     SessionDep,
@@ -22,15 +24,20 @@ from app.api.deps import (
     session_policy,
 )
 from app.config import Settings
-from app.models import utcnow
+from app.models import User, utcnow
+from app.security import totp
 from app.security.sessions import (
+    MFA_COOKIE,
+    MFA_MAX_AGE_SECONDS,
     cookie_name,
     cookie_secure,
     find_session,
+    issue_pending,
+    read_pending,
     revoke,
     start_session,
 )
-from app.services import audit
+from app.services import audit, mfa
 from app.services.users import AuthOutcome, LoginPolicy, authenticate
 from app.web.common import csrf_ok, render, safe_next
 
@@ -38,6 +45,8 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["dashboard"], include_in_schema=False)
 
 GENERIC_ERROR = "That email and password did not work. Check them, or try again in a few minutes."
+CODE_ERROR = "That code did not work. Use the newest code, or try again in a few minutes."
+DEMO_ADMIN_EMAIL = "admin@example.com"
 
 
 def login_policy(settings: Settings) -> LoginPolicy:
@@ -122,6 +131,32 @@ async def login_submit(request: Request, session: SessionDep) -> Response:
             request, next_path=next_path, error=GENERIC_ERROR, email=email, status_code=401
         )
 
+    if user.mfa_enabled:
+        session.commit()  # a rehashed password, if any
+        response = RedirectResponse(f"/login/2fa?next={quote(next_path, safe='')}", status_code=303)
+        response.set_cookie(
+            MFA_COOKIE,
+            issue_pending(settings.secret_key_bytes, user, now=now),
+            max_age=MFA_MAX_AGE_SECONDS,
+            httponly=True,
+            samesite="strict",
+            secure=cookie_secure(request.url.hostname),
+            path="/login",
+        )
+        return response
+    return _finish_login(request, session, user, next_path=next_path, now=now)
+
+
+def _finish_login(
+    request: Request,
+    session: Session,
+    user: User,
+    *,
+    next_path: str,
+    now: datetime,
+    mfa_method: str | None = None,
+) -> Response:
+    settings: Settings = request.app.state.settings
     # Rotation: whatever session this browser had ends now; the login gets a fresh one.
     previous = find_session(session, settings.secret_key_bytes, session_cookie(request))
     if previous is not None:
@@ -144,6 +179,7 @@ async def login_submit(request: Request, session: SessionDep) -> Response:
         action="login",
         target_type="session",
         target_id=row.id,
+        summary={"mfa": mfa_method} if mfa_method else None,
         request=request,
         now=now,
     )
@@ -158,8 +194,105 @@ async def login_submit(request: Request, session: SessionDep) -> Response:
         secure=secure,
         path="/",
     )
-    log.info("dashboard_login", extra={"role": user.role})
+    if mfa_method:
+        response.delete_cookie(
+            MFA_COOKIE, path="/login", httponly=True, samesite="strict", secure=secure
+        )
+    log.info("dashboard_login", extra={"role": user.role, "mfa": mfa_method})
     return response
+
+
+# --------------------------------------------------------------------------- two-factor step
+
+
+def _demo_code(settings: Settings, user: User, now: datetime) -> str | None:
+    """In demo mode the demo admin uses a public secret; show its current code."""
+    if not settings.demo_mode or user.email != DEMO_ADMIN_EMAIL:
+        return None
+    secret = mfa.active_secret(user)
+    return totp.current_code(secret, now) if secret == totp.demo_secret() else None
+
+
+def _code_page(
+    request: Request,
+    user: User,
+    *,
+    next_path: str,
+    error: str | None = None,
+    status_code: int = 200,
+) -> HTMLResponse:
+    settings: Settings = request.app.state.settings
+    return render(
+        request,
+        "login_2fa.html",
+        {
+            "next": next_path,
+            "error": error,
+            "page": "login",
+            "demo_code": _demo_code(settings, user, utcnow()),
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/login/2fa", response_class=HTMLResponse)
+def code_page(request: Request, session: SessionDep, next: str | None = None) -> Response:
+    settings: Settings = request.app.state.settings
+    user = read_pending(
+        session, settings.secret_key_bytes, request.cookies.get(MFA_COOKIE), now=utcnow()
+    )
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    return _code_page(request, user, next_path=safe_next(next))
+
+
+@router.post("/login/2fa", response_class=HTMLResponse, dependencies=[Depends(login_rate_limit)])
+async def code_submit(request: Request, session: SessionDep) -> Response:
+    settings: Settings = request.app.state.settings
+    form = await request.form()
+    next_path = safe_next(str(form.get("next") or ""))
+    now = utcnow()
+    user = read_pending(
+        session, settings.secret_key_bytes, request.cookies.get(MFA_COOKIE), now=now
+    )
+    if user is None:
+        return RedirectResponse("/login", status_code=303)
+    if not await csrf_ok(request, ""):
+        return _code_page(
+            request,
+            user,
+            next_path=next_path,
+            error="Your form expired. Try again.",
+            status_code=403,
+        )
+    code = str(form.get("code") or "")[:64]
+    result = mfa.verify_second_factor(session, user, code, now=now, policy=login_policy(settings))
+    if not result.ok:
+        audit.record(
+            session,
+            actor=user.email,
+            role=user.role,
+            action="mfa_verify",
+            outcome="failed",
+            summary={"locked": result.locked},
+            request=request,
+            now=now,
+        )
+        session.commit()
+        return _code_page(request, user, next_path=next_path, error=CODE_ERROR, status_code=401)
+    assert result.method is not None
+    audit.record(
+        session,
+        actor=user.email,
+        role=user.role,
+        action="mfa_recovery_used" if result.method is mfa.Method.RECOVERY else "mfa_verify",
+        summary={"method": result.method.value, "codes_left": result.remaining_codes},
+        request=request,
+        now=now,
+    )
+    return _finish_login(
+        request, session, user, next_path=next_path, now=now, mfa_method=result.method.value
+    )
 
 
 @router.post("/logout")

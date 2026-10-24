@@ -24,6 +24,7 @@
       <a href="/dashboard" {% if page == 'overview' %}aria-current="page"{% endif %}>Overview</a>
       <a href="/dashboard/leads" {% if page == 'leads' %}aria-current="page"{% endif %}>Leads</a>
       {% if can('retry_jobs') %}<a href="/dashboard/admin/jobs" {% if page == 'admin' %}aria-current="page"{% endif %}>Admin</a>{% endif %}
+      <a href="/dashboard/account" {% if page == 'account' %}aria-current="page"{% endif %}>Account</a>
       <a href="/docs">API</a>
     </nav>
     <form method="post" action="/logout" class="logout">

@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     login_lockout_base_seconds: float = Field(default=60.0, gt=0)  # doubles per extra failure
     login_lockout_max_seconds: float = Field(default=3600.0, gt=0)
     login_rate_limit_per_minute: float = Field(default=10.0, gt=0)  # per client IP
+    # Two-factor (TOTP): required for admins; optional for reps; not for viewers.
+    admin_2fa_required: bool = True
+    totp_issuer: str = "speed-to-lead"
 
     # Data retention: leads older than this have their personal data removed by
     # `python -m app.cli retention` (anonymize keeps the row for metrics; delete removes it).

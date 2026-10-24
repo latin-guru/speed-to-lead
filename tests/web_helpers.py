@@ -50,6 +50,23 @@ def login(
     )
 
 
+def pass_2fa(c: TestClient, response: Any, secret: str, next_path: str = "/dashboard") -> Any:
+    """Complete the two-factor step that ``response`` (a login) redirected to."""
+    from app.models import utcnow
+    from app.security import totp
+
+    assert response.headers["location"].startswith("/login/2fa")
+    c.get(response.headers["location"])
+    return c.post(
+        "/login/2fa",
+        data={
+            "code": totp.current_code(secret, utcnow()),
+            "csrf_token": c.cookies.get("stl_csrf"),
+            "next": next_path,
+        },
+    )
+
+
 def login_as(c: TestClient, role: UserRole | str) -> int:
     """Create a user with ``role`` (if needed) and log in. Returns the user id."""
     role = UserRole(role)
@@ -74,9 +91,15 @@ def csrf(c: TestClient, page: str = "/dashboard") -> str:
     return token
 
 
-def post(c: TestClient, url: str, data: dict[str, Any] | None = None, **kw: Any) -> Any:
-    """POST a dashboard form with a valid CSRF token."""
-    return c.post(url, data={**(data or {}), "csrf_token": csrf(c)}, **kw)
+def post(
+    c: TestClient,
+    url: str,
+    data: dict[str, Any] | None = None,
+    csrf_page: str = "/dashboard",
+    **kw: Any,
+) -> Any:
+    """POST a dashboard form with a valid CSRF token (taken from ``csrf_page``)."""
+    return c.post(url, data={**(data or {}), "csrf_token": csrf(c, csrf_page)}, **kw)
 
 
 def seeded(c: TestClient, n: int = 3) -> list[uuid.UUID]:

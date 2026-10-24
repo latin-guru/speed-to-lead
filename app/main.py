@@ -33,10 +33,17 @@ from app.security import fields
 from app.security.headers import BodySizeLimitMiddleware, SecurityHeadersMiddleware, docs_csp
 from app.security.rate_limit import TokenBucketLimiter
 from app.services.leads import Intake
+from app.web import account, auth, dashboard
 from app.web import admin as admin_pages
-from app.web import auth, dashboard
 from app.web import routes as web_routes
-from app.web.common import Forbidden, LoginRequired, forbidden_page, login_redirect
+from app.web.common import (
+    Forbidden,
+    LoginRequired,
+    MFASetupRequired,
+    forbidden_page,
+    login_redirect,
+    mfa_setup_redirect,
+)
 
 log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "web" / "static"
@@ -137,9 +144,11 @@ def create_app(
     app.include_router(auth.router)
     app.include_router(dashboard.router)
     app.include_router(admin_pages.router)
+    app.include_router(account.router)
     app.include_router(web_routes.router)
     app.add_exception_handler(LoginRequired, login_redirect)
     app.add_exception_handler(Forbidden, forbidden_page)
+    app.add_exception_handler(MFASetupRequired, mfa_setup_redirect)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     if settings.api_docs_enabled:
         _add_docs(app, settings.app_name)

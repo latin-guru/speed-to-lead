@@ -54,6 +54,9 @@ def make_settings(**overrides: Any) -> Settings:
         "ai_provider": "mock",
         "rate_limit_capacity": 50,
         "phone_daily_cap": 3,
+        # Most tests log in as an admin without two-factor; tests/integration/test_mfa.py
+        # covers the required-for-admins policy.
+        "admin_2fa_required": False,
     }
     base.update(overrides)
     return Settings(_env_file=None, **base)  # type: ignore[call-arg]

@@ -122,4 +122,5 @@ def dashboard_principal(request: Request, db: Session) -> Principal | None:
         user_id=user.id,
         session_id=row.id,
         session_hash=row.token_hash,
+        mfa_enabled=user.mfa_enabled,
     )
