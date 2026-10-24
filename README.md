@@ -42,8 +42,7 @@ speed-to-lead answers within seconds, scores the lead, follows up on a polite sc
 
 ## Live demo
 
-<!-- TODO (main session): replace the placeholder below with the Render URL after the first deploy. -->
-**https://&lt;render-app&gt;.onrender.com** (placeholder until the first deploy)
+**[speed-to-lead-demo-n34j.onrender.com](https://speed-to-lead-demo-n34j.onrender.com)**
 
 - Log in as **`viewer@example.com`** with the password **`copperline-demo`** (shown on the login page). The public demo offers only this read-only account: you can browse everything, contact details stay masked, and nothing can be changed.
 - A new simulated lead arrives every few seconds through the real endpoints, and the dashboard refreshes on its own.
