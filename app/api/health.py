@@ -9,6 +9,7 @@ from app.db import db_ok
 router = APIRouter(tags=["health"])
 
 
+@router.get("/health")
 @router.get("/healthz")
 def healthz(request: Request) -> JSONResponse:
     ok = db_ok(request.app.state.engine)

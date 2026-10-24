@@ -54,7 +54,8 @@ def test_overview_renders_kpis(web: TestClient) -> None:
     assert re.search(r'data-kpi="leads">3<', r.text)
     assert 'integrity="sha384-' in r.text  # vendored Chart.js still pinned with SRI
     assert web.get("/static/vendor/chart.umd.min.js").status_code == 200
-    assert "fictional company, fake data, no real messages are sent" in r.text
+    assert "Demo with sample data." in r.text
+    assert "May take a moment to wake up." in r.text
 
 
 def test_lead_list_masks_contacts_and_filters(web: TestClient) -> None:
@@ -215,3 +216,7 @@ def test_metrics_are_documented_in_openapi(web: TestClient) -> None:
         assert f"/api/metrics/{p}" in paths
     assert "/dashboard" not in paths  # HTML pages stay out of the API docs
     assert "SummaryOut" in spec["components"]["schemas"]
+
+
+def test_health_alias_matches_healthz(web: TestClient) -> None:
+    assert web.get("/health").json() == web.get("/healthz").json()

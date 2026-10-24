@@ -48,6 +48,7 @@ speed-to-lead answers within seconds, scores the lead, follows up on a polite sc
 - Log in as **`viewer@example.com`** with the password **`copperline-demo`** (shown on the login page). The public demo offers only this read-only account: you can browse everything, contact details stay masked, and nothing can be changed.
 - A new simulated lead arrives every few seconds through the real endpoints, and the dashboard refreshes on its own.
 - It runs on a free instance that sleeps when idle, so the first visit can take **about 30-60 seconds** to wake up. Each restart reseeds fresh fake data.
+- How it's hosted: one free Render web service defined in [`render.yaml`](render.yaml). The app, the job worker and the lead simulator run in that one process on a local SQLite file, so there's no paid worker, no expiring database and no cron. Demo mode refuses to start with a real AI provider, a real CRM or a non-SQLite database, and every sender is a mock.
 
 | Login with the demo accounts | Lead detail (contact masked) | Audit log (admin) |
 | --- | --- | --- |

@@ -55,7 +55,7 @@ def test_pages_redirect_to_login_and_login_page_is_plain(web: TestClient) -> Non
     assert 'name="email"' in page.text
     assert 'name="password"' in page.text
     assert "Demo accounts" not in page.text  # only in demo mode
-    assert "DEMO" in page.text  # the banner is always there
+    assert "Demo with sample data." in page.text  # the banner is always there
 
 
 def test_login_sets_a_hardened_session_cookie(web: TestClient) -> None:
