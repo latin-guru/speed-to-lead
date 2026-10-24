@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from app.main import create_app
 from app.models import Activity, Lead, WebhookEvent
 from app.security.signatures import sign_body
-from tests.conftest import META_SECRET, META_VERIFY, make_settings
+from tests.conftest import META_SECRET, META_VERIFY, drain, make_settings
 
 
 def _post(client: TestClient, payload: Any, *, signature: str | None = "auto") -> Any:
@@ -54,6 +54,7 @@ def test_good_signature_creates_lead(client: TestClient, meta_payload: dict[str,
         "rejected": 0,
         "needs_fetch": 0,
     }
+    drain(client)
     with client.app.state.session_factory() as s:  # type: ignore[attr-defined]
         lead = s.scalars(select(Lead)).one()
         assert lead.source == "meta"

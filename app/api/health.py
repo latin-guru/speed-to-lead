@@ -24,10 +24,13 @@ def readyz(request: Request) -> JSONResponse:
     warnings: list[str] = []
     if settings.meta_app_secret is None or settings.meta_verify_token is None:
         warnings.append("meta webhook not configured (META_APP_SECRET / META_VERIFY_TOKEN)")
-    ready = started and database
+    schema = bool(getattr(request.app.state, "schema_ok", False))
+    if settings.admin_token is None:
+        warnings.append("admin API not configured (ADMIN_TOKEN)")
+    ready = started and database and schema
     body = {
         "status": "ready" if ready else "not_ready",
-        "checks": {"startup": started, "db": database},
+        "checks": {"startup": started, "db": database, "schema": schema},
         "ai_provider": settings.ai_provider,
         "warnings": warnings,
     }

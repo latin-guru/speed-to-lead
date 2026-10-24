@@ -120,6 +120,6 @@ async def form_submit(request: Request, session: SessionDep) -> Response:
         return response
 
     lead = create_lead(session, data, actor="web_form", detail={"channel": "web_form"})
+    request.app.state.intake.on_lead_created(session, lead)
     session.commit()
-    request.app.state.scoring_dispatcher.dispatch(session, lead)
     return RedirectResponse("/thanks", status_code=303)

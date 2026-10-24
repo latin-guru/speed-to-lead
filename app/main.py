@@ -1,9 +1,12 @@
-"""Application factory. Run with: ``uvicorn app.main:create_app --factory``."""
+"""Application factory. Run with: ``uvicorn app.main:create_app --factory``.
+
+The API only captures and enqueues. Scoring, follow-ups and CRM sync run in the worker
+(``python -m app.worker``).
+"""
 
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
@@ -12,15 +15,15 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.ai.base import AIScorer
-from app.ai.factory import build_scorer
-from app.ai.resilience import CircuitBreaker
-from app.ai.service import ScoringService
-from app.api import health, leads, webhooks
+from app.api import admin, health, inbound, leads, tasks, webhooks
 from app.config import Settings, get_settings
-from app.db import init_db, make_engine, make_session_factory
+from app.crm.base import CRMAdapter
+from app.db import init_db, make_engine, make_session_factory, schema_is_current
+from app.followups.sequence import Sequence
 from app.logging import configure_logging
+from app.runtime import build_job_context, build_scoring
 from app.security.rate_limit import TokenBucketLimiter
-from app.services.leads import InlineScoringDispatcher, ScoringDispatcher
+from app.services.leads import Intake
 from app.web import routes as web_routes
 
 log = logging.getLogger(__name__)
@@ -32,7 +35,8 @@ def create_app(
     scorer: AIScorer | None = None,
     http_client: httpx.Client | None = None,
     sleep: Callable[[float], None] | None = None,
-    dispatcher: ScoringDispatcher | None = None,
+    sequence: Sequence | None = None,
+    crm: CRMAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, json_output=settings.log_json)
@@ -42,22 +46,20 @@ def create_app(
     client = http_client or (
         httpx.Client(timeout=settings.ai_timeout_seconds) if owned_client else None
     )
-    scorer = scorer or build_scorer(settings, client)
-    breaker = CircuitBreaker(
-        threshold=settings.ai_breaker_threshold, cooldown=settings.ai_breaker_cooldown_seconds
-    )
-    scoring = ScoringService(
-        scorer,
-        min_confidence=settings.ai_min_confidence,
-        max_attempts=settings.ai_max_attempts,
-        budget_seconds=settings.ai_total_budget_seconds,
-        breaker=breaker,
-        sleep=sleep or time.sleep,
-    )
+    # The API process does not score, but it builds the same context as the worker so a
+    # misconfigured provider fails at startup here too, and tests can run jobs in-process.
+    scoring = build_scoring(settings, scorer=scorer, http_client=client, sleep=sleep)
+    job_context = build_job_context(settings, scoring=scoring, sequence=sequence, crm=crm)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        init_db(engine)
+        if settings.environment == "test":
+            init_db(engine)  # tests build the schema from the models
+            app.state.schema_ok = True
+        else:
+            app.state.schema_ok = schema_is_current(engine)
+            if not app.state.schema_ok:
+                log.error("schema_not_current", extra={"hint": "run: alembic upgrade head"})
         app.state.ready = True
         log.info("startup", extra={"version": __version__, "ai_provider": settings.ai_provider})
         yield
@@ -71,6 +73,7 @@ def create_app(
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
     app.state.ready = False
+    app.state.schema_ok = False
     app.state.public_limiter = TokenBucketLimiter(
         capacity=settings.rate_limit_capacity,
         refill_per_second=settings.rate_limit_refill_per_minute / 60.0,
@@ -80,10 +83,18 @@ def create_app(
         refill_per_second=settings.webhook_rate_limit_refill_per_minute / 60.0,
     )
     app.state.scoring_service = scoring
-    app.state.scoring_dispatcher = dispatcher or InlineScoringDispatcher(scoring)
+    app.state.job_context = job_context
+    app.state.intake = Intake(
+        sequence=job_context.sequence,
+        max_attempts=settings.job_max_attempts,
+        crm_enabled=settings.crm_provider != "none",
+    )
 
     app.include_router(health.router)
     app.include_router(leads.router)
+    app.include_router(tasks.router)
+    app.include_router(admin.router)
     app.include_router(webhooks.router)
+    app.include_router(inbound.router)
     app.include_router(web_routes.router)
     return app

@@ -3,7 +3,7 @@ from sqlalchemy import select
 
 from app.main import create_app
 from app.models import Activity, Lead
-from tests.conftest import make_settings, valid_lead
+from tests.conftest import drain, make_settings, valid_lead
 
 
 def _activities(client: TestClient) -> list[Activity]:
@@ -20,16 +20,22 @@ def test_create_lead_happy_path(client: TestClient) -> None:
     assert body["source"] == "api"
     assert "phone" not in body
     assert "email" not in body
-    assert body["scoring"]["scored_by"] == "mock"
-    assert 0 <= body["scoring"]["score"] <= 100
+    # Capture returns before scoring: the worker scores it moments later.
+    assert body["scoring"]["scored_by"] is None
+    assert [a.kind for a in _activities(client)] == ["lead_created"]
 
+    drain(client)
     with client.app.state.session_factory() as s:  # type: ignore[attr-defined]
         lead = s.scalars(select(Lead)).one()
         assert lead.phone == "+12025550123"
+        assert lead.scored_by == "mock"
+        assert lead.score is not None
+        assert 0 <= lead.score <= 100
         assert lead.score_latency_ms is not None
         assert lead.score_provider == "mock"
+        assert lead.stage == "new"
     kinds = [a.kind for a in _activities(client)]
-    assert kinds == ["lead_created", "ai_scored"]
+    assert kinds[:2] == ["lead_created", "ai_scored"]
     assert _activities(client)[0].detail["source"] == "api"
 
 

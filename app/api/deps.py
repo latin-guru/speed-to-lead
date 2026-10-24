@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 from collections.abc import Iterator
 from typing import Annotated
 
@@ -46,3 +47,19 @@ def public_rate_limit(request: Request) -> None:
 
 def webhook_rate_limit(request: Request) -> None:
     _enforce(request.app.state.webhook_limiter, request, "webhook")
+
+
+def require_admin(request: Request) -> None:
+    """Bearer-token check for operator endpoints. Fails closed (503) when no token is set."""
+    settings: Settings = request.app.state.settings
+    expected = settings.admin_token.get_secret_value() if settings.admin_token else ""
+    if not expected:
+        raise HTTPException(status_code=503, detail="admin API not configured (ADMIN_TOKEN)")
+    scheme, _, token = request.headers.get("authorization", "").partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(token.encode(), expected.encode()):
+        raise HTTPException(
+            status_code=401, detail="invalid admin token", headers={"WWW-Authenticate": "Bearer"}
+        )
+
+
+AdminDep = Depends(require_admin)

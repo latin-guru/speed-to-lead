@@ -82,6 +82,7 @@ def _process_change(request: Request, session: Session, change: LeadgenChange) -
                 },
             )
             event.lead_id = lead.id
+            request.app.state.intake.on_lead_created(session, lead)
     session.add(event)
     try:
         session.commit()
@@ -89,7 +90,6 @@ def _process_change(request: Request, session: Session, change: LeadgenChange) -
         session.rollback()
         return "duplicate"
     if lead is not None:
-        request.app.state.scoring_dispatcher.dispatch(session, lead)
         return "created"
     log.info("webhook_change_skipped", extra={"status": event.status, "reason": event.reason})
     return event.status

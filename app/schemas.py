@@ -4,9 +4,20 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
+from app.models import LeadStage
 from app.services.normalize import (
     MESSAGE_MAX,
     InvalidInputError,
@@ -24,6 +35,22 @@ class LeadIn(BaseModel):
     phone: str | None = Field(default=None, max_length=25)
     message: str | None = Field(default=None, max_length=MESSAGE_MAX * 2)
     source: str = Field(default="api", pattern=r"^[a-z0-9_\-]{1,32}$")
+    # IANA timezone for quiet hours, e.g. "America/Denver". None -> the business timezone.
+    timezone: str | None = Field(default=None, max_length=64)
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        v = v.strip()
+        if "/" not in v and v != "UTC":
+            raise ValueError("timezone must be an IANA name like America/Denver")
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("unknown timezone") from exc
+        return v
 
     @field_validator("name")
     @classmethod
@@ -85,3 +112,97 @@ class LeadOut(BaseModel):
     stage: str
     created_at: datetime
     scoring: ScoreOut
+
+
+class ActivityOut(BaseModel):
+    kind: str
+    actor: str
+    created_at: datetime
+    detail: dict[str, Any]
+
+
+class LeadDetailOut(LeadOut):
+    lost_reason: str | None
+    timezone: str | None
+    sequence_state: str
+    opted_out: bool
+    first_response_at: datetime | None
+    first_response_seconds: float | None
+    crm_contact_id: str | None
+    crm_deal_id: str | None
+    timeline: list[ActivityOut]
+
+
+# Who is acting, e.g. "dana". Stored as "human:<name>".
+ActorName = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_.\-]{1,24}$")]
+
+
+class StageChangeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: LeadStage
+    actor: ActorName
+    reason: str | None = Field(default=None, max_length=200)
+
+
+class ContactLogIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actor: ActorName
+    channel: Literal["call", "sms", "email", "in_person"]
+    note: str | None = Field(default=None, max_length=300)
+
+
+class TaskOut(BaseModel):
+    id: int
+    lead_id: uuid.UUID
+    reason: str
+    detail: str | None
+    assignee: str | None
+    status: str
+    created_at: datetime
+    done_at: datetime | None
+
+
+class TaskUpdateIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["open", "done"] | None = None
+    assignee: str | None = Field(default=None, pattern=r"^[a-z0-9_.\-]{1,24}$")
+
+
+class JobOut(BaseModel):
+    id: int
+    kind: str
+    status: str
+    attempts: int
+    max_attempts: int
+    run_at: datetime
+    idempotency_key: str
+    last_error: str | None
+    lead_id: uuid.UUID | None
+    updated_at: datetime
+
+
+class KillSwitchIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paused: bool
+    actor: ActorName
+
+
+class KillSwitchOut(BaseModel):
+    paused: bool
+    env_paused: bool
+    db_paused: bool
+    released_jobs: int = 0
+
+
+class InboundReplyIn(BaseModel):
+    """Body of the (mock) inbound SMS webhook."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    message_id: str = Field(pattern=r"^[A-Za-z0-9_\-]{1,64}$")
+    from_phone: str = Field(alias="from", max_length=25)
+    body: str = Field(max_length=1600)
