@@ -24,5 +24,17 @@ services:
       db:
         condition: service_healthy
 
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://speed_to_lead:${POSTGRES_PASSWORD}@db:5432/speed_to_lead
+    depends_on:
+      app:
+        condition: service_healthy  # the app container runs the migrations
+    healthcheck:
+      disable: true
+
 volumes:
   pgdata:

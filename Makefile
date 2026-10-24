@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: install test lint typecheck run scan check
+.PHONY: install test lint typecheck migrate run worker scan check
 
 install:
 	python3.11 -m venv .venv
@@ -17,8 +17,14 @@ lint:
 typecheck:
 	$(PY) -m mypy
 
-run:
-	$(PY) -m uvicorn app.main:app --reload --port 8000
+migrate:
+	.venv/bin/alembic upgrade head
+
+run: migrate
+	$(PY) -m uvicorn app.main:create_app --factory --reload --port 8000
+
+worker: migrate
+	$(PY) -m app.worker
 
 scan:
 	.venv/bin/detect-secrets scan --all-files --exclude-files '^\.venv/' --exclude-files '^\.git/'
