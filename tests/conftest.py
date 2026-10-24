@@ -11,14 +11,20 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.config import Settings
 from app.main import create_app
+from app.models import User, UserRole
 from app.schemas import LeadIn
+from app.security import passwords
 from app.services.leads import create_lead
 from app.worker import Worker
+
+# argon2 with its production parameters costs ~50 ms per hash; tests use a cheap profile.
+passwords.configure(PasswordHasher(time_cost=1, memory_cost=1024, parallelism=1))
 
 FIXTURES = Path(__file__).parent / "fixtures"
 META_SECRET = "unit-test-meta-secret"  # pragma: allowlist secret
@@ -142,3 +148,24 @@ def valid_lead(**overrides: Any) -> dict[str, Any]:
     }
     body.update(overrides)
     return body
+
+
+PASSWORD = "correct horse battery"  # pragma: allowlist secret
+ROLE_EMAILS = {role: f"{role.value}@example.com" for role in UserRole}
+
+
+def add_user(app: Any, role: UserRole | str, email: str | None = None, **kw: Any) -> int:
+    """Create a dashboard user directly in the app's database. Returns the id."""
+    role = UserRole(role)
+    with app.state.session_factory() as session:
+        user = User(
+            email=email or ROLE_EMAILS[role],
+            password_hash=passwords.hash_password(kw.pop("password", PASSWORD)),
+            role=role.value,
+            active=kw.pop("active", True),
+            failed_logins=0,
+            **kw,
+        )
+        session.add(user)
+        session.commit()
+        return user.id

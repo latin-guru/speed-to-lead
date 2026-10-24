@@ -1,5 +1,9 @@
 """Operator commands: ``python -m app.cli <command>``.
 
+- ``create-user --email E --role admin|rep|viewer``: add a dashboard account. The password
+  is read from a prompt (twice), or from stdin with ``--password-stdin`` (for scripts).
+  It is never accepted as a command-line argument, which would leak it into shell history
+  and the process list.
 - ``generate-key``: print a new Fernet key for FIELD_ENCRYPTION_KEY.
 - ``rotate-keys``: re-encrypt every stored contact detail with the first FIELD_ENCRYPTION_KEY.
 """
@@ -7,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import sys
 from collections.abc import Callable
 from typing import TextIO
@@ -18,8 +23,10 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import make_engine, make_session_factory
 from app.logging import configure_logging
-from app.models import Lead, OutboxMessage
+from app.models import Lead, OutboxMessage, UserRole
 from app.security import fields
+from app.services import audit
+from app.services.users import UserError, create_user
 
 Command = Callable[[argparse.Namespace, Settings, Session, TextIO], int]
 
@@ -46,6 +53,38 @@ def rotate_contact_keys(session: Session) -> int:
     return rewritten
 
 
+def _read_password(args: argparse.Namespace, stdin: TextIO) -> str:
+    if args.password_stdin:
+        return stdin.readline().rstrip("\n")
+    first = getpass.getpass("Password: ")
+    if getpass.getpass("Repeat password: ") != first:
+        raise UserError("mismatch", "the passwords did not match")
+    return first
+
+
+def cmd_create_user(
+    args: argparse.Namespace, settings: Settings, session: Session, out: TextIO
+) -> int:
+    try:
+        password = _read_password(args, args.stdin)
+        user = create_user(session, args.email, password, args.role)
+    except UserError as exc:
+        out.write(f"error: {exc}\n")
+        return 1
+    audit.record(
+        session,
+        actor="cli",
+        role=None,
+        action="user_created",
+        target_type="user",
+        target_id=user.id,
+        summary={"email": user.email, "role": user.role},
+    )
+    session.commit()
+    out.write(f"created {user.role} {user.email} (id {user.id})\n")
+    return 0
+
+
 def cmd_rotate_keys(
     args: argparse.Namespace, settings: Settings, session: Session, out: TextIO
 ) -> int:
@@ -58,12 +97,21 @@ def cmd_rotate_keys(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    create = sub.add_parser("create-user", help="add a dashboard user")
+    create.add_argument("--email", required=True)
+    create.add_argument("--role", required=True, choices=[r.value for r in UserRole])
+    create.add_argument(
+        "--password-stdin", action="store_true", help="read the password from stdin"
+    )
     sub.add_parser("generate-key", help="print a new FIELD_ENCRYPTION_KEY value")
     sub.add_parser("rotate-keys", help="re-encrypt contact details with the newest key")
     return parser
 
 
-DB_COMMANDS: dict[str, Command] = {"rotate-keys": cmd_rotate_keys}
+DB_COMMANDS: dict[str, Command] = {
+    "create-user": cmd_create_user,
+    "rotate-keys": cmd_rotate_keys,
+}
 
 
 def main(
@@ -71,8 +119,10 @@ def main(
     *,
     settings: Settings | None = None,
     out: TextIO | None = None,
+    stdin: TextIO | None = None,
 ) -> int:
     args = build_parser().parse_args(argv)
+    args.stdin = stdin or sys.stdin
     out = out or sys.stdout
     if args.command == "generate-key":
         return cmd_generate_key(args, out)

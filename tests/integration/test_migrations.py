@@ -27,7 +27,7 @@ def test_migrations_match_models_and_downgrade(tmp_path: Path) -> None:
     command.upgrade(_cfg(url), "head")
     engine = make_engine(url)
     try:
-        assert current_revision(engine) == alembic_head() == "0003"
+        assert current_revision(engine) == alembic_head() == "0004"
         with engine.connect() as conn:
             ctx = MigrationContext.configure(conn, opts={"compare_type": True})
             assert compare_metadata(ctx, Base.metadata) == []
