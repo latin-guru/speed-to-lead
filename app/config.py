@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     business_timezone: str = "America/New_York"
     # Enforce the sending window below (lead-local time; business timezone if unknown).
     quiet_hours_enabled: bool = True
-    send_windows: str = "mon-sat 09:00-20:00; sun 15:00-18:00"
+    send_windows: str = "mon-sun 08:00-20:00"
     # "One voice": at most this many touches per person in a rolling 7 days. The instant
     # SMS + email acknowledgment counts as one touch.
     max_touches_per_week: int = Field(default=3, ge=1)

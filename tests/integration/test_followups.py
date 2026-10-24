@@ -130,7 +130,7 @@ def test_after_hours_lead_gets_the_after_hours_ack_at_opening(clock: FixedClock)
         assert ack.status == "queued"
         assert ack.attempts == 0  # waiting is not failing
         assert ack.last_error == "deferred:quiet_hours"
-        assert ack.run_at == datetime(2026, 3, 3, 14, 0, tzinfo=UTC)  # 09:00 EST
+        assert ack.run_at == datetime(2026, 3, 3, 13, 0, tzinfo=UTC)  # 08:00 EST
 
         clock.now = ack.run_at
         worker.run_until_idle()
@@ -149,17 +149,17 @@ def test_after_hours_lead_gets_the_after_hours_ack_at_opening(clock: FixedClock)
         assert _lead(app, lead_id).first_response_at == ack.run_at
 
 
-def test_saturday_night_lead_waits_for_sunday_afternoon(clock: FixedClock) -> None:
+def test_saturday_night_lead_waits_for_sunday_morning(clock: FixedClock) -> None:
     for app, _ in _app(quiet_hours_enabled=True):
         clock.now = datetime(2026, 3, 8, 2, 0, tzinfo=UTC)  # 21:00 Saturday in New York
         seed_lead(app, clock)
         worker = make_worker(app, clock)
         worker.run_until_idle()
         opens = _jobs(app)["ack_sms"].run_at
-        assert opens == datetime(2026, 3, 8, 19, 0, tzinfo=UTC)  # Sunday 15:00 EDT
+        assert opens == datetime(2026, 3, 8, 12, 0, tzinfo=UTC)  # Sunday 08:00 EDT
         clock.now = opens
         worker.run_until_idle()
-        assert "will call you this afternoon" in _outbox(app)[0].body
+        assert "will call you this morning" in _outbox(app)[0].body
 
 
 def test_in_window_lead_gets_the_standard_ack(clock: FixedClock) -> None:
@@ -174,7 +174,7 @@ def test_quiet_hours_use_the_leads_own_timezone(clock: FixedClock) -> None:
         seed_lead(app, clock, timezone="America/Los_Angeles")  # 07:00 there
         make_worker(app, clock).run_until_idle()
         assert _outbox(app) == []
-        assert _jobs(app)["ack_sms"].run_at == datetime(2026, 3, 2, 17, 0, tzinfo=UTC)
+        assert _jobs(app)["ack_sms"].run_at == datetime(2026, 3, 2, 16, 0, tzinfo=UTC)  # 08:00 PST
 
 
 def test_default_caps_fit_the_default_sequence(clock: FixedClock) -> None:

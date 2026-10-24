@@ -31,7 +31,7 @@ def _local(y: int, mo: int, d: int, h: int, mi: int = 0, tz: ZoneInfo = CHI) -> 
 
 
 NY = ZoneInfo("America/New_York")
-WINDOW = SendWindow.parse(DEFAULT_SEND_WINDOWS)  # mon-sat 09-20, sun 15-18
+WINDOW = SendWindow.parse(DEFAULT_SEND_WINDOWS)  # mon-sun 08-20
 
 
 def _ny(y: int, mo: int, d: int, h: int, mi: int = 0) -> datetime:
@@ -42,17 +42,17 @@ def _ny(y: int, mo: int, d: int, h: int, mi: int = 0) -> datetime:
 @pytest.mark.parametrize(
     ("now", "expected"),
     [
-        (_ny(2026, 3, 2, 10), _ny(2026, 3, 2, 10)),  # weekday daytime: now
-        (_ny(2026, 3, 2, 9), _ny(2026, 3, 2, 9)),  # opens exactly at 09:00
+        (_ny(2026, 3, 2, 10), _ny(2026, 3, 2, 10)),  # daytime: now
+        (_ny(2026, 3, 2, 8), _ny(2026, 3, 2, 8)),  # opens exactly at 08:00
         (_ny(2026, 3, 2, 19, 59), _ny(2026, 3, 2, 19, 59)),  # last allowed minute
-        (_ny(2026, 3, 2, 20), _ny(2026, 3, 3, 9)),  # closes at 20:00 -> tomorrow 09:00
-        (_ny(2026, 3, 2, 23, 30), _ny(2026, 3, 3, 9)),
-        (_ny(2026, 3, 3, 2), _ny(2026, 3, 3, 9)),  # small hours -> today 09:00
+        (_ny(2026, 3, 2, 20), _ny(2026, 3, 3, 8)),  # closes at 20:00 -> tomorrow 08:00
+        (_ny(2026, 3, 2, 23, 30), _ny(2026, 3, 3, 8)),
+        (_ny(2026, 3, 3, 2), _ny(2026, 3, 3, 8)),  # small hours -> today 08:00
         (_ny(2026, 3, 7, 12), _ny(2026, 3, 7, 12)),  # Saturday is a full day
-        (_ny(2026, 3, 7, 21), _ny(2026, 3, 8, 15)),  # Saturday night -> Sunday 15:00
-        (_ny(2026, 3, 8, 10), _ny(2026, 3, 8, 15)),  # Sunday morning -> Sunday 15:00
-        (_ny(2026, 3, 8, 16), _ny(2026, 3, 8, 16)),  # inside Sunday's short window
-        (_ny(2026, 3, 8, 18), _ny(2026, 3, 9, 9)),  # Sunday 18:00 -> Monday 09:00
+        (_ny(2026, 3, 7, 21), _ny(2026, 3, 8, 8)),  # Saturday night -> Sunday 08:00
+        (_ny(2026, 3, 8, 7), _ny(2026, 3, 8, 8)),  # early Sunday -> Sunday 08:00
+        (_ny(2026, 3, 8, 16), _ny(2026, 3, 8, 16)),  # Sunday is a full day too
+        (_ny(2026, 3, 8, 20), _ny(2026, 3, 9, 8)),  # Sunday 20:00 -> Monday 08:00
     ],
 )
 def test_send_window(now: datetime, expected: datetime) -> None:
@@ -61,16 +61,16 @@ def test_send_window(now: datetime, expected: datetime) -> None:
 
 
 def test_send_window_across_dst_change() -> None:
-    # 21:00 Saturday 2026-03-07 is EST (UTC-5); Sunday 15:00 is EDT (UTC-4): 19:00 UTC.
+    # 21:00 Saturday 2026-03-07 is EST (UTC-5); Sunday 08:00 is EDT (UTC-4): 12:00 UTC.
     opens = next_send_time(_ny(2026, 3, 7, 21), NY, WINDOW)
-    assert opens == _utc(2026, 3, 8, 19)
-    assert opens.astimezone(NY).hour == 15
+    assert opens == _utc(2026, 3, 8, 12)
+    assert opens.astimezone(NY).hour == 8
 
 
 def test_send_window_in_the_leads_zone() -> None:
     la = ZoneInfo("America/Los_Angeles")
-    # 07:00 Monday in Los Angeles is 10:00 in New York, but the lead's clock is what counts.
-    assert next_send_time(_local(2026, 3, 2, 7, tz=la), la, WINDOW) == _local(2026, 3, 2, 9, tz=la)
+    # 06:00 Monday in Los Angeles is 09:00 in New York, but the lead's clock is what counts.
+    assert next_send_time(_local(2026, 3, 2, 6, tz=la), la, WINDOW) == _local(2026, 3, 2, 8, tz=la)
 
 
 def test_send_window_parsing() -> None:

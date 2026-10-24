@@ -29,14 +29,14 @@ KILL_SWITCH_FLAG = "sends_paused"
 # --------------------------------------------------------------------------- sending window
 
 DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-DEFAULT_SEND_WINDOWS = "mon-sat 09:00-20:00; sun 15:00-18:00"
+DEFAULT_SEND_WINDOWS = "mon-sun 08:00-20:00"
 
 
 @dataclass(frozen=True)
 class SendWindow:
     """Allowed sending hours per weekday, in the lead's local time.
 
-    Parsed from a spec like ``"mon-sat 09:00-20:00; sun 15:00-18:00"``: ``;``-separated
+    Parsed from a spec like ``"mon-sun 08:00-20:00"``: ``;``-separated
     rules, each a day, a day range (``mon-fri``) or a comma list (``sat,sun``) followed by
     ``HH:MM-HH:MM`` (end exclusive). A day with no rule is closed. Later rules override
     earlier ones for the same day.
