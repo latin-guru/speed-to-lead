@@ -4,6 +4,8 @@
   is read from a prompt (twice), or from stdin with ``--password-stdin`` (for scripts).
   It is never accepted as a command-line argument, which would leak it into shell history
   and the process list.
+- ``retention [--dry-run]``: remove personal data from leads older than RETENTION_DAYS
+  (see ``app/services/retention.py``). Schedule it daily.
 - ``generate-key``: print a new Fernet key for FIELD_ENCRYPTION_KEY.
 - ``rotate-keys``: re-encrypt every stored contact detail with the first FIELD_ENCRYPTION_KEY.
 """
@@ -23,9 +25,10 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.db import make_engine, make_session_factory
 from app.logging import configure_logging
-from app.models import Lead, OutboxMessage, UserRole
+from app.models import Lead, OutboxMessage, UserRole, utcnow
 from app.security import fields
 from app.services import audit
+from app.services.retention import run_retention
 from app.services.users import UserError, create_user
 
 Command = Callable[[argparse.Namespace, Settings, Session, TextIO], int]
@@ -85,6 +88,26 @@ def cmd_create_user(
     return 0
 
 
+def cmd_retention(
+    args: argparse.Namespace, settings: Settings, session: Session, out: TextIO
+) -> int:
+    report = run_retention(
+        session,
+        now=utcnow(),
+        days=settings.retention_days,
+        mode=settings.retention_mode,
+        dry_run=args.dry_run,
+    )
+    if not args.dry_run:
+        session.commit()
+    verb = "would " + report.mode if args.dry_run else report.mode + "d"
+    out.write(
+        f"{verb} {report.leads} leads created before {report.cutoff:%Y-%m-%d} "
+        f"({report.outbox_removed} outbox messages, {report.sessions_removed} old sessions)\n"
+    )
+    return 0
+
+
 def cmd_rotate_keys(
     args: argparse.Namespace, settings: Settings, session: Session, out: TextIO
 ) -> int:
@@ -103,6 +126,8 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument(
         "--password-stdin", action="store_true", help="read the password from stdin"
     )
+    retention = sub.add_parser("retention", help="apply the data-retention policy")
+    retention.add_argument("--dry-run", action="store_true", help="only count, change nothing")
     sub.add_parser("generate-key", help="print a new FIELD_ENCRYPTION_KEY value")
     sub.add_parser("rotate-keys", help="re-encrypt contact details with the newest key")
     return parser
@@ -110,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 DB_COMMANDS: dict[str, Command] = {
     "create-user": cmd_create_user,
+    "retention": cmd_retention,
     "rotate-keys": cmd_rotate_keys,
 }
 

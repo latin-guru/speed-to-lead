@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: install test lint typecheck migrate run worker demo demo-seed scan check create-admin
+.PHONY: install test lint typecheck migrate run worker demo demo-seed scan check create-admin retention
 
 install:
 	python3.11 -m venv .venv
@@ -29,6 +29,10 @@ worker: migrate
 # First dashboard account: make create-admin EMAIL=you@example.com (prompts for a password)
 create-admin: migrate
 	$(PY) -m app.cli create-user --email $(EMAIL) --role admin
+
+# Data retention (schedule daily): personal data of leads older than RETENTION_DAYS
+retention: migrate
+	$(PY) -m app.cli retention
 
 # Live demo: fresh fake data in ./demo.db, worker + lead simulator in the web process.
 demo:
