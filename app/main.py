@@ -7,12 +7,16 @@ The API only captures and enqueues. Scoring, follow-ups and CRM sync run in the 
 from __future__ import annotations
 
 import logging
+import secrets
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
@@ -26,6 +30,7 @@ from app.followups.sequence import Sequence
 from app.logging import configure_logging
 from app.runtime import build_job_context, build_scoring
 from app.security import fields
+from app.security.headers import BodySizeLimitMiddleware, SecurityHeadersMiddleware, docs_csp
 from app.security.rate_limit import TokenBucketLimiter
 from app.services.leads import Intake
 from app.web import admin as admin_pages
@@ -89,7 +94,14 @@ def create_app(
             client.close()
         engine.dispose()
 
-    app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
+    app = FastAPI(
+        title=settings.app_name,
+        version=__version__,
+        lifespan=lifespan,
+        docs_url=None,  # served below with a nonce-based CSP
+        redoc_url=None,
+        openapi_url="/openapi.json" if settings.api_docs_enabled else None,
+    )
     app.state.settings = settings
     app.state.engine = engine
     app.state.session_factory = make_session_factory(engine)
@@ -129,4 +141,35 @@ def create_app(
     app.add_exception_handler(LoginRequired, login_redirect)
     app.add_exception_handler(Forbidden, forbidden_page)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    if settings.api_docs_enabled:
+        _add_docs(app, settings.app_name)
+
+    # Outermost last: security headers wrap everything (even a 413 or a 500).
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_methods=["GET", "POST"],
+            allow_headers=["Authorization", "Content-Type"],
+            allow_credentials=False,
+            max_age=600,
+        )
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.max_request_bytes)
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        hsts=settings.hsts_enabled,
+        trust_forwarded=settings.trust_forwarded_for,
+    )
     return app
+
+
+def _add_docs(app: FastAPI, title: str) -> None:
+    """Swagger UI at /docs. It needs one inline script, so this page alone gets a CSP with a
+    per-request nonce (and the CDN Swagger UI loads from)."""
+
+    @app.get("/docs", include_in_schema=False)
+    def docs() -> HTMLResponse:
+        nonce = secrets.token_urlsafe(16)
+        page = get_swagger_ui_html(openapi_url="/openapi.json", title=f"{title} API")
+        html = bytes(page.body).decode().replace("<script>", f'<script nonce="{nonce}">')
+        return HTMLResponse(html, headers={"Content-Security-Policy": docs_csp(nonce)})

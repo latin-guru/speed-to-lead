@@ -108,6 +108,8 @@ class Settings(BaseSettings):
     max_request_bytes: int = Field(default=64 * 1024, ge=1024, le=10 * 1024 * 1024)
     # Send HSTS on HTTPS responses.
     hsts_enabled: bool = True
+    # /docs (Swagger UI) and /openapi.json. Turn off to hide the API description.
+    api_docs_enabled: bool = True
 
     # Demo mode: reset + seed a SQLite DB with fake data on start, and run the worker and a
     # lead simulator inside the web process (one-service hosting). Never touches Postgres.
@@ -141,6 +143,25 @@ class Settings(BaseSettings):
             SendWindow.parse(self.send_windows)
         except ValueError as exc:
             raise ValueError(f"invalid SEND_WINDOWS: {exc}") from exc
+        return self
+
+    @model_validator(mode="after")
+    def _check_cors(self) -> Settings:
+        from urllib.parse import urlsplit
+
+        for origin in self.cors_origins:
+            parts = urlsplit(origin)
+            if (
+                origin == "*"
+                or parts.scheme not in ("http", "https")
+                or not parts.hostname
+                or parts.path
+                or parts.query
+            ):
+                raise ValueError(
+                    f"CORS_ALLOWED_ORIGINS entries must be exact origins like "
+                    f"https://app.example.com (got {origin!r})"
+                )
         return self
 
     @model_validator(mode="after")
