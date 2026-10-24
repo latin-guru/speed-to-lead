@@ -8,7 +8,7 @@
     <p class="muted">From {{ lead.source }} · received {{ local(lead.created_at) }} · first response {{ duration(response_seconds) }}</p>
   </div>
 </div>
-{% if moved %}<p class="notice" role="status">Moved to {{ moved }}.</p>{% endif %}
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 <section class="grid detail">
@@ -21,10 +21,40 @@
       <dt>Follow-ups</dt><dd>{{ lead.sequence_state }}{% if lead.opted_out_at %} · opted out {{ local(lead.opted_out_at) }}{% endif %}</dd>
       <dt>Message</dt><dd class="message">{{ message or '-' }}</dd>
     </dl>
-    {% if not revealed %}
-    <p class="small"><a href="?reveal=1">Show contact details</a> <span class="muted">(logged on the timeline)</span></p>
+    {% if lead.anonymized_at %}
+    <p class="small muted">Personal data removed {{ local(lead.anonymized_at) }} (retention: {{ retention_days }} days).</p>
+    {% elif revealed %}
+    <p class="small"><a href="/dashboard/leads/{{ lead.id }}">Hide contact details</a></p>
+    {% elif may.reveal %}
+    <form method="post" action="/dashboard/leads/{{ lead.id }}/reveal" class="actions-row">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <button type="submit" class="linkish small">Show contact details</button>
+      <span class="muted small">(logged on the timeline and in the audit log)</span>
+    </form>
+    {% elif may.reveal_needs_assign %}
+    <p class="small muted">Assign this lead to yourself to see its contact details.</p>
     {% else %}
-    <p class="small"><a href="?">Hide contact details</a></p>
+    <p class="small muted">Contact details are masked for your role.</p>
+    {% endif %}
+    <h3 class="small">Assigned to</h3>
+    <p class="small">{{ assignee or 'Nobody yet' }}{% if mine %} (you){% endif %}</p>
+    {% if may.assign_self %}
+    <form method="post" action="/dashboard/leads/{{ lead.id }}/assign">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <input type="hidden" name="assignee" value="me">
+      <button type="submit" class="btn btn-quiet">Assign to me</button>
+    </form>
+    {% endif %}
+    {% if may.assign_any %}
+    <form method="post" action="/dashboard/leads/{{ lead.id }}/assign" class="inline-form">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <label class="sr-only" for="assignee">Assign to</label>
+      <select id="assignee" name="assignee">
+        <option value="">Nobody</option>
+        {% for u in assignable %}<option value="{{ u.id }}" {% if lead.assignee_id == u.id %}selected{% endif %}>{{ u.actor_name }} ({{ u.role }})</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-quiet">Assign</button>
+    </form>
     {% endif %}
   </article>
 
@@ -42,7 +72,9 @@
 
   <article class="card">
     <h2>Change stage</h2>
-    {% if targets %}
+    {% if not may.stage %}
+    <p class="muted">{% if user.role == 'viewer' %}Read-only for your role.{% else %}This lead is assigned to someone else.{% endif %}</p>
+    {% elif targets %}
     <form method="post" action="/dashboard/leads/{{ lead.id }}/stage" class="stack">
       <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
       <label for="stage">Move to</label>
@@ -61,7 +93,7 @@
   <article class="card">
     <h2>CRM sync</h2>
     <dl class="fields">
-      <dt>Adapter</dt><dd>MOCK HubSpot (in memory)</dd>
+      <dt>Adapter</dt><dd>{{ crm_adapter }}</dd>
       <dt>Contact id</dt><dd>{{ lead.crm_contact_id or '-' }}</dd>
       <dt>Deal id</dt><dd>{{ lead.crm_deal_id or '-' }}</dd>
       <dt>Last synced</dt><dd>{{ local(lead.crm_synced_at) or 'never' }}</dd>
@@ -72,9 +104,20 @@
   <article class="card">
     <h2>Tasks</h2>
     {% if tasks %}
-    <ul class="list">
-      {% for t in tasks %}<li><span class="job job-{{ 'queued' if t.status == 'open' else 'done' }}">{{ t.status }}</span> {{ t.reason|replace('_', ' ') }}{% if t.assignee %} · {{ t.assignee }}{% endif %} <span class="muted small">{{ local(t.created_at) }}</span></li>{% endfor %}
-    </ul>
+    <div>
+      {% for t in tasks %}
+      <div class="task-row">
+        <div><span class="job job-{{ 'queued' if t.status == 'open' else 'done' }}">{{ t.status }}</span> {{ t.reason|replace('_', ' ') }}{% if t.assignee %} · {{ t.assignee }}{% endif %} <span class="muted small">{{ local(t.created_at) }}</span></div>
+        {% if t.status == 'open' and may.tasks %}
+        <form method="post" action="/dashboard/tasks/{{ t.id }}/close" class="inline-form">
+          <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+          <label class="check small"><input type="checkbox" name="resume_sequence" value="1"> resume follow-ups</label>
+          <button type="submit" class="btn btn-quiet">Close task</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
     {% else %}<p class="muted">No handoff tasks.</p>{% endif %}
   </article>
 

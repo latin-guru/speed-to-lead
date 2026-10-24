@@ -1,0 +1,62 @@
+{% extends "dash_base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-head"><div><h1>Users</h1><p class="muted">Admins manage everything, reps work their leads, viewers only read. Changing a user ends their open sessions.</p></div></div>
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if done %}<p class="notice" role="status">{{ done }}</p>{% endif %}
+{% if locked_writes %}<p class="callout" role="note">Demo mode: the demo accounts are shared, so user changes are turned off.</p>{% endif %}
+<div class="card table-wrap">
+  <table class="data">
+    <thead><tr><th scope="col">Email</th><th scope="col">Role and status</th><th scope="col">Sign-in</th><th scope="col">Reset password</th></tr></thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td>{{ u.email }}{% if user.user_id == u.id %} <span class="tag">you</span>{% endif %}</td>
+        <td>
+          <form method="post" action="/dashboard/admin/users/{{ u.id }}" class="inline-form">
+            <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+            <label class="sr-only" for="role-{{ u.id }}">Role for {{ u.email }}</label>
+            <select id="role-{{ u.id }}" name="role">
+              {% for r in roles %}<option value="{{ r }}" {% if u.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+            </select>
+            <label class="check"><input type="checkbox" name="active" value="1" {% if u.active %}checked{% endif %}> active</label>
+            <button type="submit" class="btn btn-quiet">Save</button>
+          </form>
+        </td>
+        <td class="small">
+          {% if u.locked_until and u.locked_until > now %}<span class="tag tag-flag">locked</span> until {{ local(u.locked_until) }}{% endif %}
+          {% if u.failed_logins %}{{ u.failed_logins }} failed{% endif %}
+          {% if u.failed_logins or u.locked_until %}
+          <form method="post" action="/dashboard/admin/users/{{ u.id }}/unlock">
+            <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-quiet">Unlock</button>
+          </form>
+          {% endif %}
+          <span class="muted">last login {{ local(u.last_login_at) or 'never' }}</span>
+        </td>
+        <td>
+          <form method="post" action="/dashboard/admin/users/{{ u.id }}/password" class="inline-form">
+            <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+            <label class="sr-only" for="pw-{{ u.id }}">New password for {{ u.email }}</label>
+            <input id="pw-{{ u.id }}" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+            <button type="submit" class="btn btn-quiet">Set</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<section class="card add-user">
+  <h2>Add a user</h2>
+  <form method="post" action="/dashboard/admin/users" class="filters">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+    <div class="field"><label for="new-email">Email</label><input id="new-email" name="email" type="email" autocomplete="off" maxlength="254" required></div>
+    <div class="field"><label for="new-role">Role</label>
+      <select id="new-role" name="role">{% for r in roles %}<option value="{{ r }}" {% if r == 'rep' %}selected{% endif %}>{{ r }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="new-password">Password <span class="muted">(12+ characters)</span></label><input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></div>
+    <div class="field actions"><button type="submit" class="btn">Add user</button></div>
+  </form>
+</section>
+{% endblock %}

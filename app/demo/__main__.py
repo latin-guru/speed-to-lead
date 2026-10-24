@@ -1,7 +1,7 @@
 """``python -m app.demo``: reset a SQLite demo DB, seed it, and serve the live demo.
 
 The web process also runs the worker and the lead simulator (``DEMO_MODE=1``), so this one
-command is the whole demo. Open http://127.0.0.1:8000/login and use the demo token shown.
+command is the whole demo. Open http://127.0.0.1:8000/login and use a demo account shown there.
 """
 
 from __future__ import annotations
@@ -39,10 +39,9 @@ def main(argv: list[str] | None = None) -> int:
 
     import uvicorn
 
-    print(
-        f"\n  Demo: http://{args.host}:{args.port}/login  (token: "
-        f"{settings.demo_token.get_secret_value() if settings.demo_token else '?'})\n"
-    )
+    password = settings.demo_password.get_secret_value() if settings.demo_password else "?"
+    accounts = ", ".join(f"{role}@example.com" for role in settings.demo_role_list)
+    print(f"\n  Demo: http://{args.host}:{args.port}/login\n  {accounts} / {password}\n")
     uvicorn.run("app.main:create_app", factory=True, host=args.host, port=args.port)
     return 0
 

@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.config import DEFAULT_DEMO_TOKEN
+from app.config import DEFAULT_DEMO_PASSWORD
 from app.db import make_engine, make_session_factory
 from app.demo import __main__ as demo_main
 from app.demo.runtime import DemoRunner, demo_base_url, reseed
@@ -21,7 +21,7 @@ from app.demo.seed import FIRST_NAMES, reset_database, seed_demo
 from app.demo.simulator import Simulator
 from app.followups.guards import DEFAULT_SEND_WINDOWS, SendWindow
 from app.main import create_app
-from app.models import Activity, Job, Lead, OutboxMessage, Task
+from app.models import Activity, Job, Lead, OutboxMessage, Task, User
 from app.services import metrics as m
 from tests.conftest import ADMIN, ADMIN_TOKEN, INBOUND_SECRET, META_SECRET, drain, make_settings
 
@@ -125,10 +125,15 @@ def test_demo_mode_refuses_postgres_and_fills_secrets() -> None:
     assert s.admin_token is not None
     assert len(s.admin_token.get_secret_value()) > 20  # random, per process
     assert s.meta_app_secret is not None
-    assert s.demo_token is not None
-    assert s.demo_token.get_secret_value() == DEFAULT_DEMO_TOKEN
+    assert s.demo_password is not None
+    assert s.demo_password.get_secret_value() == DEFAULT_DEMO_PASSWORD
+    assert s.demo_role_list == ["admin", "rep", "viewer"]
+    assert s.login_lockout_max_seconds <= 60  # shared public accounts: short lockouts only
     assert demo_base_url(s) == "http://127.0.0.1:8000"
-    assert make_settings().demo_token is None  # outside demo mode there is no demo login
+    assert make_settings().demo_password is None  # outside demo mode there is no demo login
+    assert make_settings(demo_mode=True, demo_roles="viewer, nobody").demo_role_list == ["viewer"]
+    with pytest.raises(ValidationError, match="DEMO_ROLES"):
+        make_settings(demo_mode=True, demo_roles="superuser")
 
 
 def test_simulator_posts_through_the_real_endpoints(client: TestClient) -> None:
@@ -201,16 +206,27 @@ def test_demo_mode_app_reseeds_and_runs_the_worker(tmp_path: Any) -> None:
     app = create_app(settings, demo_simulate=False)
     with TestClient(app, base_url="http://localhost", follow_redirects=False) as c:
         page = c.get("/login")
-        assert "Demo credentials" in page.text
-        assert DEFAULT_DEMO_TOKEN in page.text
+        assert "Demo accounts" in page.text
+        assert DEFAULT_DEMO_PASSWORD in page.text
+        for email in ("admin@example.com", "rep@example.com", "viewer@example.com"):
+            assert email in page.text
         with app.state.session_factory() as s:
             assert s.scalar(select(func.count(Lead.id))) == 12
+            rep_id = s.scalar(select(User.id).where(User.email == "rep@example.com"))
+            assert s.scalar(select(func.count(Lead.id)).where(Lead.assignee_id == rep_id)) == 4
         csrf = c.cookies.get("stl_csrf")
-        r = c.post("/login", data={"token": DEFAULT_DEMO_TOKEN, "csrf_token": csrf})
+        r = c.post(
+            "/login",
+            data={
+                "email": "viewer@example.com",
+                "password": DEFAULT_DEMO_PASSWORD,
+                "csrf_token": csrf,
+            },
+        )
         assert r.status_code == 303
-        assert "Demo visitor" in c.get("/dashboard").text
-        # The demo token never works on the operator API.
-        demo_bearer = {"Authorization": f"Bearer {DEFAULT_DEMO_TOKEN}"}
+        assert "viewer" in c.get("/dashboard").text
+        # The demo password never works on the operator API.
+        demo_bearer = {"Authorization": f"Bearer {DEFAULT_DEMO_PASSWORD}"}
         assert c.get("/admin/jobs", headers=demo_bearer).status_code == 401
         # The in-process worker picks up a new lead without anyone draining the queue.
         r = c.post(
@@ -276,3 +292,25 @@ def test_bearer_admin_still_reads_metrics(client: TestClient) -> None:
 
 def test_demo_first_names_come_from_the_fixed_list() -> None:
     assert len(set(FIRST_NAMES)) == len(FIRST_NAMES) >= 50
+
+
+def test_demo_cli_prints_the_demo_accounts(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, capsys: Any
+) -> None:
+    import uvicorn
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'demo.db'}")
+    monkeypatch.setenv("DEMO_MODE", "1")
+    monkeypatch.setenv("PORT", "8000")
+    calls: list[Any] = []
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **kw: calls.append((a, kw)))
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        assert demo_main.main([]) == 0
+    finally:
+        get_settings.cache_clear()
+    out = capsys.readouterr().out
+    assert "admin@example.com, rep@example.com, viewer@example.com / copperline-demo" in out
+    assert calls

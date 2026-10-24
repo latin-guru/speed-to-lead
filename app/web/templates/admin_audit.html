@@ -1,0 +1,44 @@
+{% extends "dash_base.html" %}
+{% block title %}Audit log{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-head"><div><h1>Audit log</h1><p class="muted">{{ total }} matching events, newest first. IP addresses are stored as a keyed hash; contact details are never recorded.</p></div></div>
+<form method="get" class="filters card" aria-label="Filter events">
+  <div class="field"><label for="a-action">Action</label>
+    <select id="a-action" name="action"><option value="">Any</option>
+      {% for a in actions %}<option value="{{ a }}" {% if filters.action == a %}selected{% endif %}>{{ a|replace('_', ' ') }}</option>{% endfor %}
+    </select></div>
+  <div class="field"><label for="a-actor">Actor</label><input id="a-actor" name="actor" maxlength="254" value="{{ filters.actor or '' }}"></div>
+  <div class="field"><label for="a-target">Target id</label><input id="a-target" name="target" maxlength="64" value="{{ filters.target_id or '' }}"></div>
+  <div class="field"><label for="a-outcome">Outcome</label>
+    <select id="a-outcome" name="outcome"><option value="">Any</option>
+      {% for o in ('ok', 'denied', 'failed') %}<option value="{{ o }}" {% if filters.outcome == o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    </select></div>
+  <div class="field actions"><button type="submit" class="btn">Apply</button><a class="btn btn-quiet" href="/dashboard/admin/audit">Reset</a></div>
+</form>
+<div class="card table-wrap">
+  <table class="data">
+    <thead><tr><th scope="col">When</th><th scope="col">Actor</th><th scope="col">Action</th><th scope="col">Outcome</th><th scope="col">Target</th><th scope="col">Details</th><th scope="col">Client</th></tr></thead>
+    <tbody>
+    {% for e in events %}
+      <tr>
+        <td>{{ local(e.at) }}</td>
+        <td>{{ e.actor }}{% if e.role %} <span class="muted small">{{ e.role }}</span>{% endif %}</td>
+        <td>{{ e.action|replace('_', ' ') }}</td>
+        <td><span class="job job-{{ 'done' if e.outcome == 'ok' else 'dead' }}">{{ e.outcome }}</span></td>
+        <td class="small">{% if e.target_type %}{{ e.target_type }}{% endif %} {% if e.target_type == 'lead' %}<a href="/dashboard/leads/{{ e.target_id }}">{{ e.target_id }}</a>{% else %}{{ e.target_id or '' }}{% endif %}</td>
+        <td class="small">{% for k, v in e.summary.items() %}<span class="kv">{{ k }}: {{ v }}</span> {% endfor %}</td>
+        <td class="small muted">{{ e.ip_hash or '-' }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">No events match.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="pager" aria-label="Pages">
+  {% if prev_url %}<a class="btn btn-quiet" href="{{ prev_url }}" rel="prev">← Newer</a>{% endif %}
+  <span class="muted">Page {{ page_no }} of {{ pages }}</span>
+  {% if next_url %}<a class="btn btn-quiet" href="{{ next_url }}" rel="next">Older →</a>{% endif %}
+</nav>
+{% endblock %}

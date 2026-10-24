@@ -1,148 +1,32 @@
-"""Dashboard pages, login/session cookie, metrics JSON endpoints."""
+"""Dashboard pages and the metrics JSON endpoints (as an admin unless a test says otherwise)."""
 
 import re
 import uuid
 from collections.abc import Iterator
-from http.cookies import SimpleCookie
-from typing import Any
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.main import create_app
-from app.models import Activity
-from app.security.session import SESSION_COOKIE
-from tests.conftest import ADMIN, ADMIN_TOKEN, drain, make_settings, seed_lead
+from app.models import Activity, AuditEvent, UserRole
+from tests.conftest import ADMIN, drain, seed_lead
+from tests.web_helpers import app_of, csrf, login_as, make_client, post, seeded
 
 PHONE_E164 = "+12025550123"
 PHONE_PRETTY = "(202) 555-0123"
 EMAIL = "jordan.alvarez@example.com"
 
 
-def _client(base_url: str = "http://localhost", **overrides: Any) -> Iterator[TestClient]:
-    app = create_app(make_settings(**overrides))
-    with TestClient(app, base_url=base_url, follow_redirects=False) as c:
-        yield c
-
-
 @pytest.fixture
 def web() -> Iterator[TestClient]:
-    yield from _client()
+    yield from make_client()
 
 
-def _csrf(c: TestClient) -> str:
-    c.get("/login")
-    token = c.cookies.get("stl_csrf")
-    assert token
-    return token
+def login(c: TestClient) -> None:
+    login_as(c, UserRole.ADMIN)
 
 
-def login(c: TestClient, token: str = ADMIN_TOKEN, next_path: str = "/dashboard") -> Any:
-    return c.post("/login", data={"token": token, "csrf_token": _csrf(c), "next": next_path})
-
-
-def _seeded(c: TestClient, n: int = 3) -> list[uuid.UUID]:
-    app: FastAPI = c.app  # type: ignore[assignment]
-    ids = [seed_lead(app)]
-    ids += [
-        seed_lead(app, phone=f"(202) 555-01{40 + i}", email=f"lead{i}@example.com")
-        for i in range(n - 1)
-    ]
-    drain(c)
-    return ids
-
-
-def _set_cookie(response: Any, name: str) -> SimpleCookie:
-    for header in response.headers.get_list("set-cookie"):
-        if header.startswith(name + "="):
-            jar: SimpleCookie = SimpleCookie()
-            jar.load(header)
-            return jar
-    raise AssertionError(f"no {name} cookie set")
-
-
-# --------------------------------------------------------------------------- login
-
-
-def test_pages_redirect_to_login(web: TestClient) -> None:
-    r = web.get("/dashboard/leads?stage=new")
-    assert r.status_code == 303
-    assert r.headers["location"] == "/login?next=%2Fdashboard%2Fleads%3Fstage%3Dnew"
-    page = web.get("/login")
-    assert page.status_code == 200
-    assert "Access token" in page.text
-    assert "Demo credentials" not in page.text  # not demo mode
-    assert "DEMO" in page.text  # the banner is always there
-    assert "Content-Security-Policy" in page.headers
-    assert "script-src 'self'" in page.headers["content-security-policy"]
-
-
-def test_login_sets_a_hardened_session_cookie(web: TestClient) -> None:
-    r = login(web, next_path="/dashboard/leads")
-    assert r.status_code == 303
-    assert r.headers["location"] == "/dashboard/leads"
-    morsel = _set_cookie(r, SESSION_COOKIE)[SESSION_COOKIE]
-    assert morsel["httponly"]
-    assert morsel["samesite"] == "strict"
-    assert not morsel["secure"]  # plain-HTTP localhost development
-    assert morsel["path"] == "/"
-    assert ADMIN_TOKEN not in morsel.value  # the token itself is never in the cookie
-    assert web.get("/dashboard").status_code == 200
-    assert web.get("/login").status_code == 303  # already logged in
-
-
-def test_cookie_is_secure_off_localhost() -> None:
-    for c in _client(base_url="https://dash.example.com"):
-        assert _set_cookie(c.get("/login"), "stl_csrf")["stl_csrf"]["secure"]
-        r = login(c)
-        assert r.status_code == 303
-        assert _set_cookie(r, SESSION_COOKIE)[SESSION_COOKIE]["secure"]
-
-
-def test_login_failures(web: TestClient) -> None:
-    r = web.post("/login", data={"token": ADMIN_TOKEN, "csrf_token": "forged"})
-    assert r.status_code == 403
-    r = login(web, token="wrong-token")
-    assert r.status_code == 401
-    assert "not valid" in r.text
-    assert SESSION_COOKIE not in r.headers.get("set-cookie", "")
-    assert web.get("/dashboard").status_code == 303
-
-
-def test_login_without_any_token_configured() -> None:
-    for c in _client(admin_token=None):
-        assert "No login is configured" in c.get("/login").text
-        assert login(c, token="").status_code == 401
-
-
-@pytest.mark.parametrize(
-    "target", ["//evil.example.com", "https://evil.example.com", "/docs", "/dashboard\\x"]
-)
-def test_login_never_redirects_off_the_dashboard(web: TestClient, target: str) -> None:
-    assert login(web, next_path=target).headers["location"] == "/dashboard"
-
-
-def test_tampered_or_rotated_session_is_rejected(web: TestClient) -> None:
-    login(web)
-    cookie = web.cookies.get(SESSION_COOKIE)
-    assert cookie
-    _role, *rest = cookie.split(".")
-    web.cookies.set(SESSION_COOKIE, ".".join(["admin", str(int(rest[0]) + 999), *rest[1:]]))
-    assert web.get("/dashboard").status_code == 303
-    web.cookies.set(SESSION_COOKIE, cookie)
-    assert web.get("/dashboard").status_code == 200
-    web.app.state.settings.admin_token = None  # type: ignore[attr-defined]  # token rotated away
-    assert web.get("/dashboard").status_code == 303
-
-
-def test_logout(web: TestClient) -> None:
-    login(web)
-    assert web.post("/logout", data={"csrf_token": "x"}).status_code == 403
-    r = web.post("/logout", data={"csrf_token": web.cookies.get("stl_csrf")})
-    assert r.status_code == 303
-    assert 'stl_session=""' in r.headers["set-cookie"] or "Max-Age=0" in r.headers["set-cookie"]
+_seeded = seeded
 
 
 # --------------------------------------------------------------------------- pages
@@ -189,7 +73,7 @@ def test_lead_list_masks_contacts_and_filters(web: TestClient) -> None:
 
 
 def test_lead_list_pages(web: TestClient) -> None:
-    app: FastAPI = web.app  # type: ignore[assignment]
+    app = app_of(web)
     for i in range(27):
         seed_lead(app, phone=f"(303) 555-01{i:02d}", email=f"p{i}@example.com")
     login(web)
@@ -214,15 +98,24 @@ def test_lead_detail_masked_by_default_and_reveal_is_logged(web: TestClient) -> 
     assert "MOCK" in r.text
     assert "Sent ack_sms" in r.text
 
-    revealed = web.get(f"/dashboard/leads/{lead_id}?reveal=1")
+    assert (
+        web.get(f"/dashboard/leads/{lead_id}?reveal=1").text.count(PHONE_E164) == 0
+    )  # GET never reveals
+    revealed = post(web, f"/dashboard/leads/{lead_id}/reveal")
+    assert revealed.status_code == 200
     assert PHONE_E164 in revealed.text
     assert EMAIL in revealed.text
-    with web.app.state.session_factory() as s:  # type: ignore[attr-defined]
+    with app_of(web).state.session_factory() as s:
         acts = s.scalars(
             select(Activity).where(Activity.lead_id == lead_id, Activity.kind == "contact_revealed")
         ).all()
-    assert [a.actor for a in acts] == ["human:dashboard-admin"]
+        events = s.scalars(select(AuditEvent).where(AuditEvent.action == "contact_revealed")).all()
+    assert [a.actor for a in acts] == ["human:admin"]
+    assert [(e.actor, e.target_id, e.outcome) for e in events] == [
+        ("admin@example.com", str(lead_id), "ok")
+    ]
     assert web.get(f"/dashboard/leads/{uuid.uuid4()}").status_code == 404
+    assert post(web, f"/dashboard/leads/{uuid.uuid4()}/reveal").status_code == 404
 
 
 def test_stage_form_moves_and_reopens(web: TestClient) -> None:
@@ -230,6 +123,7 @@ def test_stage_form_moves_and_reopens(web: TestClient) -> None:
     login(web)
     url = f"/dashboard/leads/{lead_id}/stage"
     assert web.post(url, data={"stage": "qualified"}).status_code == 403  # no CSRF token
+    csrf(web)
     r = web.post(url, data={"stage": "lost", "csrf_token": web.cookies.get("stl_csrf")})
     assert r.headers["location"].endswith("?error=reason_required")
     assert "A reason is required" in web.get(r.headers["location"]).text
@@ -286,7 +180,7 @@ def test_summary_json_refreshes_with_new_leads(web: TestClient) -> None:
     assert len(first["response_times"]) >= 14
     assert first["activity"][0]["summary"]
     assert not any("555-01" in a["summary"] or "@" in a["summary"] for a in first["activity"])
-    seed_lead(web.app, phone="(202) 555-0177", email="new@example.com")  # type: ignore[arg-type]
+    seed_lead(app_of(web), phone="(202) 555-0177", email="new@example.com")
     drain(web)
     second = web.get("/api/metrics/summary").json()
     assert second["kpis"]["leads"] == 3

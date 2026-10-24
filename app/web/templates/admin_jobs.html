@@ -1,0 +1,31 @@
+{% extends "dash_base.html" %}
+{% block title %}Dead-letter jobs{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-head"><div><h1>Dead-letter jobs</h1><p class="muted">Jobs that ran out of attempts or failed permanently. Retrying gives a job a fresh set of attempts.</p></div></div>
+{% if done %}<p class="notice" role="status">Job {{ done }} is queued again.</p>{% elif done == 0 %}<p class="error" role="alert">That job could not be retried (only dead jobs can).</p>{% endif %}
+<div class="card table-wrap">
+  <table class="data">
+    <thead><tr><th scope="col">Job</th><th scope="col">Kind</th><th scope="col">Attempts</th><th scope="col">Last error</th><th scope="col">Updated</th><th scope="col"><span class="sr-only">Action</span></th></tr></thead>
+    <tbody>
+    {% for j in jobs %}
+      <tr>
+        <td>#{{ j.id }}{% if j.lead_id %}<br><a class="small" href="/dashboard/leads/{{ j.lead_id }}">lead</a>{% endif %}</td>
+        <td>{{ j.kind }}</td>
+        <td>{{ j.attempts }}/{{ j.max_attempts }}</td>
+        <td class="small">{{ j.last_error or '-' }}</td>
+        <td>{{ local(j.updated_at) }}</td>
+        <td>
+          <form method="post" action="/dashboard/admin/jobs/{{ j.id }}/retry">
+            <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+            <button type="submit" class="btn btn-quiet">Retry</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">No dead jobs. All clear.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

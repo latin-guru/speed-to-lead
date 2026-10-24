@@ -169,7 +169,7 @@ table.data .num { text-align: right; }
 table.data tr:last-child td { border-bottom: 0; }
 .leads td a { font-weight: 550; }
 
-.filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: .75rem; align-items: end; margin-bottom: .75rem; }
+.filters { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: .75rem; align-items: end; margin-bottom: .75rem; }
 .field { display: grid; gap: .3rem; }
 .field.actions { display: flex; gap: .5rem; }
 .pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin-top: 1rem; }
@@ -221,4 +221,29 @@ h1 .stage { font-size: .8rem; margin-left: .35rem; }
 }
 @media (forced-colors: active) {
   .dot, .mark { forced-color-adjust: none; }
+}
+
+/* Session 5: roles, admin pages */
+.subnav { display: flex; flex-wrap: wrap; gap: .25rem; margin: -.5rem 0 1rem; }
+.subnav a { color: var(--text-2); text-decoration: none; padding: .3rem .6rem; border-radius: 6px; border: 1px solid var(--line); font-size: .875rem; }
+.subnav a[aria-current="page"] { color: var(--text); background: var(--surface-2); font-weight: 600; }
+.inline-form { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+.inline-form select, .inline-form input[type="password"] { width: auto; min-width: 8rem; }
+.check { display: inline-flex; gap: .3rem; align-items: center; font-weight: 500; }
+.check input { width: auto; min-height: 0; }
+.add-user { margin-top: .75rem; }
+.add-user .filters { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; margin: 0; }
+.demo-accounts { margin: .25rem 0 .5rem; padding-left: 1rem; }
+.pick { user-select: all; }
+.who { font-weight: 600; color: var(--text); }
+.role .tag { font-size: .7rem; }
+.wide-dt { grid-template-columns: 12rem minmax(0, 1fr); }
+.kv { display: inline-block; margin-right: .5rem; }
+.actions-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: .5rem; }
+.linkish { background: none; border: 0; padding: 0; color: var(--series-1); font: inherit; text-decoration: underline; cursor: pointer; }
+.task-row { display: grid; gap: .3rem; padding: .4rem 0; border-top: 1px solid var(--line); }
+.task-row:first-child { border-top: 0; }
+@media (max-width: 760px) {
+  .add-user .filters { grid-template-columns: minmax(0, 1fr); }
+  .wide-dt { grid-template-columns: minmax(0, 1fr); }
 }

@@ -5,10 +5,11 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
-from app.api.deps import AdminDep, SessionDep, public_rate_limit, too_many
+from app.api.deps import AdminDep, SessionDep, TokenPrincipal, public_rate_limit, too_many
 from app.config import Settings
 from app.models import Lead, LeadStage, utcnow
 from app.schemas import ContactLogIn, LeadDetailOut, LeadIn, LeadOut, StageChangeIn
+from app.services import audit
 from app.services.leads import (
     create_lead,
     leads_today_for_phone,
@@ -59,12 +60,17 @@ def get_lead(lead_id: uuid.UUID, session: SessionDep) -> LeadDetailOut:
     return to_lead_detail(_get_lead(session, lead_id))
 
 
-@router.patch("/leads/{lead_id}/stage", response_model=LeadDetailOut, dependencies=[AdminDep])
+@router.patch("/leads/{lead_id}/stage", response_model=LeadDetailOut)
 def patch_stage(
-    lead_id: uuid.UUID, body: StageChangeIn, request: Request, session: SessionDep
+    lead_id: uuid.UUID,
+    body: StageChangeIn,
+    request: Request,
+    session: SessionDep,
+    principal: TokenPrincipal,
 ) -> LeadDetailOut:
     settings: Settings = request.app.state.settings
     lead = _get_lead(session, lead_id)
+    before = lead.stage
     try:
         move_stage(
             session,
@@ -81,6 +87,15 @@ def patch_stage(
         raise HTTPException(
             status_code=TRANSITION_STATUS[exc.code], detail={"code": exc.code, "message": str(exc)}
         ) from exc
+    audit.record_for(
+        session,
+        principal,
+        "stage_changed",
+        request=request,
+        target_type="lead",
+        target_id=lead.id,
+        summary={"from": before, "to": body.stage.value, "as": body.actor},
+    )
     session.commit()
     session.refresh(lead)
     return to_lead_detail(lead)

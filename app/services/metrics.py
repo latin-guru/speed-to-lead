@@ -266,6 +266,9 @@ def activity_summary(kind: str, detail: dict[str, Any]) -> str:
         "crm_synced": f"Synced to CRM ({d.get('stage')})",
         "human_contact": f"Contacted by a person ({d.get('channel')})",
         "contact_revealed": "Contact details revealed",
+        "lead_assigned": f"Assigned to {d.get('to') or 'nobody'}",
+        "task_closed": f"Task closed ({d.get('reason')})",
+        "lead_anonymized": "Personal data removed (retention)",
     }
     return texts.get(kind, kind.replace("_", " "))
 
@@ -300,6 +303,8 @@ class LeadFilter:
     source: str | None = None
     min_score: int | None = None
     max_score: int | None = None
+    assignee_id: int | None = None
+    unassigned: bool = False
 
 
 def list_leads(
@@ -314,6 +319,10 @@ def list_leads(
         conds.append(Lead.score >= filters.min_score)
     if filters.max_score is not None:
         conds.append(Lead.score <= filters.max_score)
+    if filters.assignee_id is not None:
+        conds.append(Lead.assignee_id == filters.assignee_id)
+    if filters.unassigned:
+        conds.append(Lead.assignee_id.is_(None))
     total = int(session.scalar(select(func.count(Lead.id)).where(*conds)) or 0)
     leads = list(
         session.scalars(

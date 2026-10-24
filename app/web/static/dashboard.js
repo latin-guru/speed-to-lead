@@ -221,7 +221,10 @@
   }
 
   function refresh() {
-    return fetch(URL_SUMMARY, { credentials: "same-origin", headers: { Accept: "application/json" } })
+    // X-Background-Refresh: polling is not user activity, so an unattended tab still reaches
+    // the session idle timeout (the server then answers 401 and we go to the login page).
+    var headers = { Accept: "application/json", "X-Background-Refresh": "1" };
+    return fetch(URL_SUMMARY, { credentials: "same-origin", headers: headers })
       .then(function (r) {
         if (r.status === 401) { window.location.href = "/login?next=/dashboard"; throw new Error("login"); }
         if (!r.ok) throw new Error("HTTP " + r.status);

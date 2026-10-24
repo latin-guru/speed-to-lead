@@ -1,0 +1,6 @@
+<nav class="subnav" aria-label="Admin">
+  <a href="/dashboard/admin/jobs" {% if section == 'jobs' %}aria-current="page"{% endif %}>Dead-letter jobs</a>
+  <a href="/dashboard/admin/system" {% if section == 'system' %}aria-current="page"{% endif %}>Kill switch &amp; settings</a>
+  <a href="/dashboard/admin/users" {% if section == 'users' %}aria-current="page"{% endif %}>Users</a>
+  <a href="/dashboard/admin/audit" {% if section == 'audit' %}aria-current="page"{% endif %}>Audit log</a>
+</nav>

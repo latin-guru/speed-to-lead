@@ -1,0 +1,31 @@
+{% extends "dash_base.html" %}
+{% block title %}Kill switch and settings{% endblock %}
+{% block content %}
+{% include "admin_nav.html" %}
+<div class="page-head"><div><h1>Kill switch &amp; settings</h1></div></div>
+{% if released is not none %}<p class="notice" role="status">Saved.{% if released %} {{ released }} held sends are due now (every guard still applies).{% endif %}</p>{% endif %}
+<section class="grid">
+  <article class="card">
+    <h2>Automated sends</h2>
+    {% if env_paused %}
+    <p class="error" role="status">Paused by the environment (SENDS_PAUSED=true). Change it in the deployment to resume.</p>
+    {% endif %}
+    <p>Status: <strong>{{ 'paused' if (db_paused or env_paused) else 'running' }}</strong>{% if flag %} <span class="muted small">· last changed by {{ flag.updated_by }} {{ local(flag.updated_at) }}</span>{% endif %}</p>
+    <p class="small muted">Paused sends wait; nothing is dropped. Resuming makes the held sends due now.</p>
+    {% if can('kill_switch') %}
+    <form method="post" action="/dashboard/admin/kill-switch">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <input type="hidden" name="paused" value="{{ '0' if db_paused else '1' }}">
+      <button type="submit" class="btn">{{ 'Resume sends' if db_paused else 'Pause all sends' }}</button>
+    </form>
+    {% endif %}
+  </article>
+  <article class="card">
+    <h2>Settings</h2>
+    <p class="small muted">Read-only. Settings come from environment variables; secrets are never shown.</p>
+    <dl class="fields wide-dt">
+      {% for label, value in rows %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+    </dl>
+  </article>
+</section>
+{% endblock %}

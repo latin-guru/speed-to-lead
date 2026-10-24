@@ -3,24 +3,25 @@
 {% block content %}
 <section class="login card">
   <h1>Log in to the dashboard</h1>
-  <p class="muted">Temporary access: paste the operator token. Per-user accounts and roles come next.</p>
-  {% if demo_token %}
+  <p class="muted">Use your own account. What you can do depends on your role.</p>
+  {% if demo_accounts %}
   <div class="callout" role="note">
-    <p><strong>Demo credentials</strong> (fake data only):</p>
-    <p class="token-row"><code id="demo-token">{{ demo_token }}</code></p>
+    <p><strong>Demo accounts</strong> (fake data only). Password for all: <code class="pick">{{ demo_password }}</code></p>
+    <ul class="demo-accounts">
+      {% for email, role in demo_accounts %}<li><code class="pick">{{ email }}</code> <span class="muted">{{ role }}</span></li>{% endfor %}
+    </ul>
   </div>
-  {% endif %}
-  {% if not configured %}
-  <p class="error" role="alert">No login is configured. Set ADMIN_TOKEN (or run the demo).</p>
   {% endif %}
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
   <form method="post" action="/login" class="stack">
     <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
     <input type="hidden" name="next" value="{{ next }}">
-    <label for="token">Access token</label>
-    <input id="token" name="token" type="password" autocomplete="current-password" required
-           {% if demo_token %}value="{{ demo_token }}"{% endif %} autofocus>
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="username" maxlength="254" required value="{{ email }}" autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" maxlength="128" required>
     <button type="submit" class="btn">Log in</button>
   </form>
+  <p class="small muted">Scripts and integrations use the API with the operator token instead (see the API docs).</p>
 </section>
 {% endblock %}

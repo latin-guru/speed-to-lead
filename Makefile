@@ -1,7 +1,7 @@
 PY ?= .venv/bin/python
 PIP ?= .venv/bin/pip
 
-.PHONY: install test lint typecheck migrate run worker demo demo-seed scan check
+.PHONY: install test lint typecheck migrate run worker demo demo-seed scan check create-admin
 
 install:
 	python3.11 -m venv .venv
@@ -25,6 +25,10 @@ run: migrate
 
 worker: migrate
 	$(PY) -m app.worker
+
+# First dashboard account: make create-admin EMAIL=you@example.com (prompts for a password)
+create-admin: migrate
+	$(PY) -m app.cli create-user --email $(EMAIL) --role admin
 
 # Live demo: fresh fake data in ./demo.db, worker + lead simulator in the web process.
 demo:

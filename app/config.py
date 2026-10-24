@@ -11,8 +11,10 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AIProviderName = Literal["mock", "claude", "grok"]
-# Public on purpose: shown on the demo login page, only valid in DEMO_MODE (fake data).
-DEFAULT_DEMO_TOKEN = "copperline-demo"  # noqa: S105  # pragma: allowlist secret
+# Public on purpose: shown on the demo login page. Demo accounts only exist in DEMO_MODE
+# (fake data, reseeded on every start).
+DEFAULT_DEMO_PASSWORD = "copperline-demo"  # noqa: S105  # pragma: allowlist secret
+DEMO_ROLES = ("admin", "rep", "viewer")
 
 
 class Settings(BaseSettings):
@@ -88,15 +90,32 @@ class Settings(BaseSettings):
     sends_paused: bool = False  # env kill switch; the DB flag can also pause
     kill_switch_recheck_seconds: float = Field(default=300.0, gt=0)
 
-    # Dashboard login (temporary until real users and roles): a signed session cookie.
-    session_ttl_hours: float = Field(default=12.0, gt=0, le=24 * 7)
+    # Dashboard logins (users + roles). Sessions are server-side; the cookie is signed.
+    session_ttl_hours: float = Field(default=12.0, gt=0, le=24 * 7)  # absolute limit
+    session_idle_minutes: float = Field(default=30.0, gt=0, le=24 * 60)
+    login_max_failures: int = Field(default=5, ge=1, le=100)  # then the account locks
+    login_lockout_base_seconds: float = Field(default=60.0, gt=0)  # doubles per extra failure
+    login_lockout_max_seconds: float = Field(default=3600.0, gt=0)
+    login_rate_limit_per_minute: float = Field(default=10.0, gt=0)  # per client IP
+
+    # Data retention: leads older than this have their personal data removed by
+    # `python -m app.cli retention` (anonymize keeps the row for metrics; delete removes it).
+    retention_days: int = Field(default=365, ge=1, le=3650)
+    retention_mode: Literal["anonymize", "delete"] = "anonymize"
+
+    # Browser security. CORS is off unless origins are listed (comma-separated, exact).
+    cors_allowed_origins: str = ""
+    max_request_bytes: int = Field(default=64 * 1024, ge=1024, le=10 * 1024 * 1024)
+    # Send HSTS on HTTPS responses.
+    hsts_enabled: bool = True
 
     # Demo mode: reset + seed a SQLite DB with fake data on start, and run the worker and a
     # lead simulator inside the web process (one-service hosting). Never touches Postgres.
     demo_mode: bool = False
-    # Login token for the demo dashboard, shown on the login page in demo mode. It only
-    # opens the dashboard (fake data), never the bearer-token operator API.
-    demo_token: SecretStr | None = None
+    # Demo accounts (<role>@example.com) seeded in demo mode, all with this password, shown
+    # on the login page. For a public deployment, list only "viewer" in DEMO_ROLES.
+    demo_password: SecretStr | None = None
+    demo_roles: str = ",".join(DEMO_ROLES)
     demo_seed: int = 4242
     demo_leads: int = Field(default=150, ge=0, le=5000)
     demo_interval_min_seconds: float = Field(default=5.0, gt=0)
@@ -143,8 +162,14 @@ class Settings(BaseSettings):
             value = getattr(self, name)
             if value is None or not value.get_secret_value():
                 setattr(self, name, SecretStr(secrets.token_urlsafe(24)))
-        if self.demo_token is None or not self.demo_token.get_secret_value():
-            self.demo_token = SecretStr(DEFAULT_DEMO_TOKEN)
+        if self.demo_password is None or not self.demo_password.get_secret_value():
+            self.demo_password = SecretStr(DEFAULT_DEMO_PASSWORD)
+        # The demo accounts are shared and public: keep a lockout short, so nobody can keep
+        # them locked for long by failing on purpose.
+        self.login_lockout_max_seconds = min(self.login_lockout_max_seconds, 60.0)
+        self.login_lockout_base_seconds = min(self.login_lockout_base_seconds, 60.0)
+        if not self.demo_role_list:
+            raise ValueError(f"DEMO_ROLES must list some of {', '.join(DEMO_ROLES)}")
         return self
 
     @model_validator(mode="after")
@@ -188,6 +213,15 @@ class Settings(BaseSettings):
         if len(self.blind_index_key.get_secret_value()) < 16:
             raise ValueError("BLIND_INDEX_KEY must be at least 16 characters")
         return self
+
+    @property
+    def demo_role_list(self) -> list[str]:
+        wanted = [r.strip().lower() for r in self.demo_roles.split(",") if r.strip()]
+        return [r for r in DEMO_ROLES if r in wanted]
+
+    @property
+    def cors_origins(self) -> list[str]:
+        return [o.strip().rstrip("/") for o in self.cors_allowed_origins.split(",") if o.strip()]
 
     @property
     def uses_dev_field_keys(self) -> bool:

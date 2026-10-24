@@ -7,13 +7,14 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import select
 
-from app.api.deps import AdminDep, SessionDep
+from app.api.deps import AdminDep, SessionDep, TokenPrincipal
 from app.config import Settings
 from app.followups.guards import KILL_SWITCH_FLAG, set_sends_paused
 from app.jobs import kinds
 from app.jobs.queue import release_deferred, retry_dead
 from app.models import Job, SystemFlag, utcnow
 from app.schemas import JobOut, KillSwitchIn, KillSwitchOut
+from app.services import audit
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[AdminDep])
 
@@ -44,11 +45,16 @@ def list_jobs(
 
 
 @router.post("/jobs/{job_id}/retry", response_model=JobOut)
-def retry_job(job_id: int, session: SessionDep) -> JobOut:
+def retry_job(
+    job_id: int, request: Request, session: SessionDep, principal: TokenPrincipal
+) -> JobOut:
     if not retry_dead(session, job_id, now=utcnow()):
         if session.get(Job, job_id) is None:
             raise HTTPException(status_code=404, detail="job not found")
         raise HTTPException(status_code=409, detail="only dead jobs can be retried")
+    audit.record_for(
+        session, principal, "job_retried", request=request, target_type="job", target_id=job_id
+    )
     session.commit()
     job = session.get(Job, job_id, populate_existing=True)
     assert job is not None
@@ -72,12 +78,23 @@ def get_kill_switch(request: Request, session: SessionDep) -> KillSwitchOut:
 
 
 @router.post("/kill-switch", response_model=KillSwitchOut)
-def set_kill_switch(body: KillSwitchIn, request: Request, session: SessionDep) -> KillSwitchOut:
+def set_kill_switch(
+    body: KillSwitchIn, request: Request, session: SessionDep, principal: TokenPrincipal
+) -> KillSwitchOut:
     """Pause or resume every automated send. Paused jobs wait; none are dropped."""
     now = utcnow()
     set_sends_paused(session, body.paused, actor=f"human:{body.actor}", now=now)
     released = 0
     if not body.paused:  # resume: run what the switch held back now (guards still apply)
         released = release_deferred(session, kinds.FOLLOWUP_SEND, "kill_switch", now=now)
+    audit.record_for(
+        session,
+        principal,
+        "kill_switch",
+        request=request,
+        target_type="system",
+        target_id="sends_paused",
+        summary={"paused": body.paused, "released_jobs": released, "as": body.actor},
+    )
     session.commit()
     return _kill_switch(session, request.app.state.settings, released)

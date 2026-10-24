@@ -13,7 +13,7 @@ import time
 from dataclasses import dataclass, field
 
 import httpx
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
@@ -21,7 +21,8 @@ from app.demo.seed import SeedReport, reset_database, seed_demo
 from app.demo.simulator import Simulator
 from app.followups.guards import SendWindow
 from app.jobs.handlers import JobContext
-from app.models import utcnow
+from app.models import Lead, User, UserRole, utcnow
+from app.security.passwords import hash_password
 from app.worker import Worker
 
 log = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ def reseed(settings: Settings, engine: Engine, sf: sessionmaker[Session]) -> See
         company=settings.company_name,
         callback_minutes=settings.callback_minutes,
     )
+    seed_demo_users(settings, sf)
     log.info(
         "demo_seeded",
         extra={
@@ -53,6 +55,38 @@ def reseed(settings: Settings, engine: Engine, sf: sessionmaker[Session]) -> See
         },
     )
     return report
+
+
+def seed_demo_users(settings: Settings, sf: sessionmaker[Session]) -> list[str]:
+    """``<role>@example.com`` for each DEMO_ROLES entry, all with the public demo password.
+
+    About a third of the leads are assigned to the demo rep, so logging in as the rep shows
+    both sides of the rule: their own leads (contact details can be revealed) and the rest.
+    """
+    assert settings.demo_password is not None  # the demo validator fills it
+    password = settings.demo_password.get_secret_value()
+    emails: list[str] = []
+    with sf() as session:
+        users = {}
+        for role in settings.demo_role_list:
+            email = f"{role}@example.com"
+            users[role] = User(
+                email=email,
+                password_hash=hash_password(password),
+                role=UserRole(role).value,
+                active=True,
+                failed_logins=0,
+            )
+            emails.append(email)
+        session.add_all(users.values())
+        session.flush()
+        rep = users.get("rep")
+        if rep is not None:
+            lead_ids = sorted(session.scalars(select(Lead.id)), key=str)
+            mine = [lead_id for i, lead_id in enumerate(lead_ids) if i % 3 == 0]
+            session.execute(update(Lead).where(Lead.id.in_(mine)).values(assignee_id=rep.id))
+        session.commit()
+    return emails
 
 
 @dataclass

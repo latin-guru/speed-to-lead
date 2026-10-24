@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.deps import SessionDep, dashboard_session, require_admin
+from app.api.deps import SessionDep, dashboard_principal, require_admin
 from app.models import utcnow
 from app.services import metrics as m
 
@@ -22,12 +22,12 @@ KPI_DAYS = 7
 CHART_DAYS = 30
 
 
-def require_metrics_access(request: Request) -> None:
-    """Bearer ``ADMIN_TOKEN`` or a valid dashboard session."""
-    if dashboard_session(request) is not None:
-        return
+def require_metrics_access(request: Request, session: SessionDep) -> None:
+    """Bearer ``ADMIN_TOKEN`` or a dashboard session (any role: these are aggregates)."""
     if request.headers.get("authorization"):
         require_admin(request)  # raises 401 / 503 with the usual details
+        return
+    if dashboard_principal(request, session) is not None:
         return
     raise HTTPException(
         status_code=401,

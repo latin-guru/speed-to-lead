@@ -28,8 +28,10 @@ from app.runtime import build_job_context, build_scoring
 from app.security import fields
 from app.security.rate_limit import TokenBucketLimiter
 from app.services.leads import Intake
-from app.web import dashboard
+from app.web import admin as admin_pages
+from app.web import auth, dashboard
 from app.web import routes as web_routes
+from app.web.common import Forbidden, LoginRequired, forbidden_page, login_redirect
 
 log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "web" / "static"
@@ -97,6 +99,10 @@ def create_app(
         capacity=settings.rate_limit_capacity,
         refill_per_second=settings.rate_limit_refill_per_minute / 60.0,
     )
+    app.state.login_limiter = TokenBucketLimiter(
+        capacity=max(1, int(settings.login_rate_limit_per_minute)),
+        refill_per_second=settings.login_rate_limit_per_minute / 60.0,
+    )
     app.state.webhook_limiter = TokenBucketLimiter(
         capacity=settings.webhook_rate_limit_capacity,
         refill_per_second=settings.webhook_rate_limit_refill_per_minute / 60.0,
@@ -116,8 +122,11 @@ def create_app(
     app.include_router(webhooks.router)
     app.include_router(inbound.router)
     app.include_router(metrics.router)
+    app.include_router(auth.router)
     app.include_router(dashboard.router)
+    app.include_router(admin_pages.router)
     app.include_router(web_routes.router)
-    app.add_exception_handler(dashboard.LoginRequired, dashboard.login_redirect)
+    app.add_exception_handler(LoginRequired, login_redirect)
+    app.add_exception_handler(Forbidden, forbidden_page)
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     return app

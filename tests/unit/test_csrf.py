@@ -1,5 +1,6 @@
 import time
 
+from app.security import csrf
 from app.security.csrf import MAX_AGE_SECONDS, check_double_submit, issue_token, token_valid
 
 KEY = b"csrf-test-key"  # pragma: allowlist secret
@@ -30,3 +31,21 @@ def test_double_submit_requires_match() -> None:
     assert not check_double_submit(KEY, a, b)
     assert not check_double_submit(KEY, None, a)
     assert not check_double_submit(KEY, a, "")
+
+
+def test_token_is_bound_to_its_session() -> None:
+    token = issue_token(KEY, binding="session-a")
+    assert check_double_submit(KEY, token, token, binding="session-a")
+    assert not check_double_submit(KEY, token, token, binding="session-b")
+    assert not check_double_submit(KEY, token, token)  # an anonymous (pre-login) binding
+    anon = issue_token(KEY)
+    assert not token_valid(KEY, anon, binding="session-a")  # a pre-login token after login
+    issued, nonce, mac = token.split(".")
+    assert not token_valid(KEY, f"x{issued}.{nonce}.{mac}", binding="session-a")
+    assert not token_valid(KEY, "a" * 300)
+
+
+def test_csrf_rejects_a_signed_but_malformed_timestamp() -> None:
+    payload = "notanumber.nonce"
+    token = f"{payload}.{csrf._mac(KEY, payload, '')}"
+    assert not csrf.token_valid(KEY, token)
