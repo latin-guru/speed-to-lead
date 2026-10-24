@@ -1,0 +1,56 @@
+# Render Blueprint: the public demo as ONE free web service.
+#
+# DEMO_MODE=1 resets a SQLite file on the service's local (ephemeral) disk at every start,
+# seeds fake history, and runs the worker and the lead simulator inside the web process, so
+# no database, Redis or worker service is needed. Every restart starts from fresh fake data.
+# Only the read-only viewer login is offered (DEMO_ROLES=viewer). Scoring and the CRM are
+# MOCKS and every sender is a MOCK: no API keys are used and nothing leaves the service.
+#
+# Free instances sleep when idle; the first request after that takes about 30-60 seconds.
+#
+# Secrets: Render generates random values (generateValue). FIELD_ENCRYPTION_KEY is left
+# unset on purpose: it must be a Fernet key, and demo mode generates one at startup when
+# it is unset (the data is fake and reseeded on every start anyway).
+services:
+  - type: web
+    name: speed-to-lead-demo
+    runtime: python
+    plan: free
+    autoDeployTrigger: commit
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: DEMO_MODE
+        value: "1"
+      - key: DEMO_ROLES
+        value: viewer
+      - key: DATABASE_URL
+        value: sqlite:///./demo.db
+      - key: AI_PROVIDER
+        value: mock
+      - key: CRM_PROVIDER
+        value: hubspot
+      - key: CRM_MOCK
+        value: "true"
+      # Behind Render's proxy every request comes from the proxy's address. With this on, the
+      # app keys rate limits by the right-most X-Forwarded-For hop (the one the proxy adds),
+      # never by hops a client could send itself.
+      - key: TRUST_FORWARDED_FOR
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SECRET_KEY
+        generateValue: true
+      - key: BLIND_INDEX_KEY
+        generateValue: true
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: META_APP_SECRET
+        generateValue: true
+      - key: META_VERIFY_TOKEN
+        generateValue: true
+      - key: INBOUND_WEBHOOK_SECRET
+        generateValue: true
