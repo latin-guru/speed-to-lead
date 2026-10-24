@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import json
 import uuid
 from collections.abc import Iterator
@@ -24,6 +26,9 @@ META_VERIFY = "unit-test-verify-token"  # pragma: allowlist secret
 ADMIN_TOKEN = "unit-test-admin-token"  # pragma: allowlist secret
 INBOUND_SECRET = "unit-test-inbound-secret"  # pragma: allowlist secret
 ADMIN = {"Authorization": f"Bearer {ADMIN_TOKEN}"}
+# A fixed, test-only Fernet key (derived, so no key material is written in the repo).
+FIELD_KEY = base64.urlsafe_b64encode(hashlib.sha256(b"unit-test-field-key").digest()).decode()
+BLIND_INDEX = "unit-test-blind-index-key"  # pragma: allowlist secret
 
 
 def make_settings(**overrides: Any) -> Settings:
@@ -35,6 +40,8 @@ def make_settings(**overrides: Any) -> Settings:
         "meta_verify_token": SecretStr(META_VERIFY),
         "admin_token": SecretStr(ADMIN_TOKEN),
         "inbound_webhook_secret": SecretStr(INBOUND_SECRET),
+        "field_encryption_key": SecretStr(FIELD_KEY),
+        "blind_index_key": SecretStr(BLIND_INDEX),
         # Tests run on the real clock; the quiet-hours tests turn this on with a fixed clock.
         "quiet_hours_enabled": False,
         "log_json": True,
@@ -91,6 +98,16 @@ class SleepRecorder:
 
     def __call__(self, seconds: float) -> None:
         self.calls.append(seconds)
+
+
+@pytest.fixture(autouse=True)
+def _restore_field_crypto() -> Iterator[None]:
+    """Commands and apps install process-wide field crypto; put the previous one back."""
+    from app.security import fields
+
+    saved = fields._active
+    yield
+    fields._active = saved
 
 
 @pytest.fixture

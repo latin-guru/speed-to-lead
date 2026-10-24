@@ -27,6 +27,11 @@ def readyz(request: Request) -> JSONResponse:
     schema = bool(getattr(request.app.state, "schema_ok", False))
     if settings.admin_token is None:
         warnings.append("admin API not configured (ADMIN_TOKEN)")
+    if settings.uses_dev_field_keys:
+        warnings.append(
+            "contact details use the public development key (set FIELD_ENCRYPTION_KEY and "
+            "BLIND_INDEX_KEY)"
+        )
     ready = started and database and schema
     body = {
         "status": "ready" if ready else "not_ready",

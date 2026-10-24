@@ -29,6 +29,7 @@ from app.jobs.handlers import HANDLERS, Handler, JobContext
 from app.logging import configure_logging
 from app.models import utcnow
 from app.runtime import build_job_context, build_scoring
+from app.security import fields
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +185,7 @@ def main(argv: list[str] | None = None, *, settings: Settings | None = None) -> 
 
     settings = settings or get_settings()
     configure_logging(settings.log_level, json_output=settings.log_json)
+    fields.configure(fields.from_settings(settings))
     engine = make_engine(settings.database_url)
     if settings.environment != "test" and not schema_is_current(engine):
         log.error("schema_not_current", extra={"hint": "run: alembic upgrade head"})

@@ -56,13 +56,13 @@ def _process(session: Session, reply: InboundReplyIn, phone: str) -> str:
         outcome = "opted_out" if leads else "unmatched"
         event.lead_id = leads[0].id if leads else None
     elif is_start_keyword(reply.body):
-        known = session.scalar(select(Lead.id).where(Lead.phone == phone).limit(1))
+        known = session.scalar(select(Lead.id).where(Lead.phone_is(phone)).limit(1))
         changed = opt_in(session, phone, now=now, source="inbound:sms")
         outcome = "opted_in" if changed else ("not_opted_out" if known else "unmatched")
         event.lead_id = changed[0].id if changed else known
     else:
         lead = session.scalars(
-            select(Lead).where(Lead.phone == phone).order_by(Lead.created_at.desc()).limit(1)
+            select(Lead).where(Lead.phone_is(phone)).order_by(Lead.created_at.desc()).limit(1)
         ).first()
         if lead is None:
             outcome = "unmatched"

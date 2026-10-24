@@ -32,3 +32,10 @@ def test_health_reports_db_down() -> None:
         app.state.engine = create_engine("sqlite:////nonexistent-dir/x.db")
         assert c.get("/healthz").status_code == 503
         assert c.get("/readyz").status_code == 503
+
+
+def test_readyz_warns_about_the_development_field_key() -> None:
+    app = create_app(make_settings(field_encryption_key=None, blind_index_key=None))
+    with TestClient(app) as c:
+        body = c.get("/readyz").json()
+    assert any("FIELD_ENCRYPTION_KEY" in w for w in body["warnings"])

@@ -25,6 +25,7 @@ from app.demo.runtime import DemoRunner, reseed
 from app.followups.sequence import Sequence
 from app.logging import configure_logging
 from app.runtime import build_job_context, build_scoring
+from app.security import fields
 from app.security.rate_limit import TokenBucketLimiter
 from app.services.leads import Intake
 from app.web import dashboard
@@ -46,6 +47,7 @@ def create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, json_output=settings.log_json)
+    fields.configure(fields.from_settings(settings))
 
     engine = make_engine(settings.database_url)
     owned_client = http_client is None and scorer is None and settings.ai_provider != "mock"

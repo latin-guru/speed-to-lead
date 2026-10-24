@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Literal
 
@@ -52,6 +53,13 @@ class Settings(BaseSettings):
     xai_api_key: SecretStr | None = None
     xai_model: str = "grok-4"
     xai_base_url: str = "https://api.x.ai"
+
+    # Field-level encryption of phone/email (see app/security/fields.py). Fernet keys,
+    # comma-separated, newest first. Required in prod; dev/test fall back to a public
+    # development key (and /readyz warns).
+    field_encryption_key: SecretStr | None = None
+    # HMAC key for the blind index used to look up encrypted phones/emails.
+    blind_index_key: SecretStr | None = None
 
     # Operator API (/admin/*, pipeline moves, tasks, lead detail). Unset -> those endpoints
     # fail closed with 503.
@@ -146,6 +154,50 @@ class Settings(BaseSettings):
                 raise ValueError("SECRET_KEY must be set when ENVIRONMENT=prod")
             self.secret_key = SecretStr(secrets.token_urlsafe(32))
         return self
+
+    @model_validator(mode="after")
+    def _check_field_keys(self) -> Settings:
+        from cryptography.fernet import Fernet
+
+        from app.security.fields import dev_key, parse_keys
+
+        fallbacks: dict[str, Callable[[], str]] = {
+            "field_encryption_key": lambda: dev_key("field-encryption"),
+            "blind_index_key": lambda: dev_key("blind-index"),
+        }
+        if self.demo_mode:  # fake data, reseeded on every start: random keys are fine
+            fallbacks = {
+                "field_encryption_key": lambda: Fernet.generate_key().decode(),
+                "blind_index_key": lambda: secrets.token_urlsafe(32),
+            }
+        for name, fallback in fallbacks.items():
+            value = getattr(self, name)
+            if value is None or not value.get_secret_value().strip():
+                if self.environment == "prod":
+                    raise ValueError(f"{name.upper()} must be set when ENVIRONMENT=prod")
+                setattr(self, name, SecretStr(fallback()))
+        assert self.field_encryption_key is not None
+        assert self.blind_index_key is not None
+        try:
+            parse_keys(self.field_encryption_key.get_secret_value())
+        except ValueError as exc:
+            raise ValueError(
+                "FIELD_ENCRYPTION_KEY must be comma-separated Fernet keys (generate one with "
+                "python -m app.cli generate-key)"
+            ) from exc
+        if len(self.blind_index_key.get_secret_value()) < 16:
+            raise ValueError("BLIND_INDEX_KEY must be at least 16 characters")
+        return self
+
+    @property
+    def uses_dev_field_keys(self) -> bool:
+        from app.security.fields import dev_key
+
+        assert self.field_encryption_key is not None
+        assert self.blind_index_key is not None
+        return dev_key("field-encryption") in self.field_encryption_key.get_secret_value() or (
+            self.blind_index_key.get_secret_value() == dev_key("blind-index")
+        )
 
     @property
     def secret_key_bytes(self) -> bytes:

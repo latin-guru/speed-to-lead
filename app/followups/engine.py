@@ -169,7 +169,7 @@ def opt_in(session: Session, phone: str, *, now: datetime, source: str) -> list[
     choosing to follow up, can reach the person again. Returns the leads that changed.
     """
     changed = list(
-        session.scalars(select(Lead).where(Lead.phone == phone, Lead.opted_out_at.is_not(None)))
+        session.scalars(select(Lead).where(Lead.phone_is(phone), Lead.opted_out_at.is_not(None)))
     )
     for lead in changed:
         add_activity(
@@ -195,11 +195,15 @@ def person_opted_out(session: Session, lead: Lead) -> bool:
     """
     if lead.opted_out_at is not None:
         return True
-    if not lead.phone:
+    if not lead.phone_bidx:
         return False
     other = session.scalar(
         select(Lead.id)
-        .where(Lead.phone == lead.phone, Lead.opted_out_at.is_not(None), Lead.id != lead.id)
+        .where(
+            Lead.phone_bidx == lead.phone_bidx,
+            Lead.opted_out_at.is_not(None),
+            Lead.id != lead.id,
+        )
         .limit(1)
     )
     return other is not None
@@ -207,7 +211,7 @@ def person_opted_out(session: Session, lead: Lead) -> bool:
 
 def opt_out(session: Session, phone: str, *, now: datetime, source: str) -> list[Lead]:
     """Opt out every lead with this phone number and cancel their pending sends."""
-    leads = list(session.scalars(select(Lead).where(Lead.phone == phone)))
+    leads = list(session.scalars(select(Lead).where(Lead.phone_is(phone))))
     for lead in leads:
         if lead.opted_out_at is None:
             lead.opted_out_at = now

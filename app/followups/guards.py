@@ -129,10 +129,10 @@ def _person_touches(session: Session, lead: Lead, since: datetime) -> list[tuple
     acknowledgment) together are a single touch, timed at the first of them.
     """
     same_person = [Lead.id == lead.id]
-    if lead.phone:
-        same_person.append(Lead.phone == lead.phone)
-    if lead.email:
-        same_person.append(Lead.email == lead.email)
+    if lead.phone_bidx:  # blind indexes: compare without decrypting
+        same_person.append(Lead.phone_bidx == lead.phone_bidx)
+    if lead.email_bidx:
+        same_person.append(Lead.email_bidx == lead.email_bidx)
     lead_ids = select(Lead.id).where(or_(*same_person))
     rows = session.execute(
         select(OutboxMessage.lead_id, OutboxMessage.sent_at, OutboxMessage.transactional)

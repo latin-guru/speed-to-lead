@@ -88,7 +88,7 @@ def utc_day_bounds(now: datetime) -> tuple[datetime, datetime]:
 def leads_today_for_phone(session: Session, phone: str, *, now: datetime | None = None) -> int:
     start, end = utc_day_bounds(now or utcnow())
     stmt = select(func.count(Lead.id)).where(
-        Lead.phone == phone, Lead.created_at >= start, Lead.created_at < end
+        Lead.phone_is(phone), Lead.created_at >= start, Lead.created_at < end
     )
     return int(session.scalar(stmt) or 0)
 

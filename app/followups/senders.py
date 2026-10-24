@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.followups.sequence import SMS_MAX, Channel
 from app.jobs.queue import insert_ignore
 from app.models import OutboxMessage
+from app.security import fields
 
 
 @dataclass(frozen=True)
@@ -56,7 +57,7 @@ class _MockOutboxSender:
                 "lead_id": message.lead_id,
                 "step": message.step,
                 "channel": message.channel.value,
-                "to_address": message.to_address,
+                "to_address_enc": fields.active().encrypt(message.to_address),
                 "subject": message.subject,
                 "body": body,
                 "sender": self.name,

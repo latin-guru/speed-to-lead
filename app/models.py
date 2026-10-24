@@ -17,6 +17,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    ColumnElement,
     Float,
     ForeignKey,
     Index,
@@ -28,6 +29,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, UTCDateTime
+from app.security import fields
 
 
 def utcnow() -> datetime:
@@ -53,8 +55,13 @@ class Lead(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(80))
-    email: Mapped[str | None] = mapped_column(String(254), index=True)
-    phone: Mapped[str | None] = mapped_column(String(16), index=True)  # E.164
+    # Contact details are encrypted at rest (app/security/fields.py). ``*_bidx`` is a keyed
+    # HMAC of the normalized value, for equality lookups without decrypting. Read and write
+    # them through the ``phone`` / ``email`` properties below.
+    email_enc: Mapped[str | None] = mapped_column(Text)
+    email_bidx: Mapped[str | None] = mapped_column(String(64), index=True)
+    phone_enc: Mapped[str | None] = mapped_column(Text)
+    phone_bidx: Mapped[str | None] = mapped_column(String(64), index=True)  # of E.164
     source: Mapped[str] = mapped_column(String(32), index=True)
     message: Mapped[str | None] = mapped_column(Text)
     timezone: Mapped[str | None] = mapped_column(String(64))  # IANA name; None = business tz
@@ -88,6 +95,34 @@ class Lead(Base):
     activities: Mapped[list[Activity]] = relationship(
         back_populates="lead", order_by="Activity.id", cascade="all, delete-orphan"
     )
+
+    @property
+    def phone(self) -> str | None:
+        """E.164 phone, decrypted on read."""
+        return fields.decrypt_optional(self.phone_enc)
+
+    @phone.setter
+    def phone(self, value: str | None) -> None:
+        self.phone_enc = fields.encrypt_optional(value)
+        self.phone_bidx = fields.index_optional("phone", value)
+
+    @property
+    def email(self) -> str | None:
+        return fields.decrypt_optional(self.email_enc)
+
+    @email.setter
+    def email(self, value: str | None) -> None:
+        self.email_enc = fields.encrypt_optional(value)
+        self.email_bidx = fields.index_optional("email", value)
+
+    @staticmethod
+    def phone_is(phone: str) -> ColumnElement[bool]:
+        """SQL condition "this lead has ``phone``" (via the blind index)."""
+        return Lead.phone_bidx == fields.active().blind_index("phone", phone)
+
+    @staticmethod
+    def email_is(email: str) -> ColumnElement[bool]:
+        return Lead.email_bidx == fields.active().blind_index("email", email)
 
 
 class Activity(Base):
@@ -164,13 +199,21 @@ class OutboxMessage(Base):
     )
     step: Mapped[str] = mapped_column(String(32))
     channel: Mapped[str] = mapped_column(String(8))  # sms | email
-    to_address: Mapped[str] = mapped_column(String(254))
+    to_address_enc: Mapped[str] = mapped_column(Text)  # encrypted, like the lead's contacts
     subject: Mapped[str | None] = mapped_column(String(200))
     body: Mapped[str] = mapped_column(Text)
     sender: Mapped[str] = mapped_column(String(32))  # e.g. "MOCK-sms"
     idempotency_key: Mapped[str] = mapped_column(String(128), unique=True)
     transactional: Mapped[bool] = mapped_column(default=False)
     sent_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+    @property
+    def to_address(self) -> str:
+        return fields.active().decrypt(self.to_address_enc)
+
+    @to_address.setter
+    def to_address(self, value: str) -> None:
+        self.to_address_enc = fields.active().encrypt(value)
 
 
 class TaskStatus(enum.StrEnum):
