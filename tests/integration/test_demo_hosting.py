@@ -130,12 +130,12 @@ def _blueprint() -> dict[str, Any]:
     return data
 
 
-def test_render_blueprint_is_a_safe_free_demo(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_render_blueprint_is_a_safe_demo(monkeypatch: pytest.MonkeyPatch) -> None:
     services = _blueprint()["services"]
     assert len(services) == 1
     web = services[0]
     assert web["type"] == "web"
-    assert web["plan"] == "free"
+    assert web["plan"] in ("free", "starter")  # starter while interviewing (always on, SMTP allowed)
     assert web["runtime"] == "python"
     assert web["healthCheckPath"] == "/healthz"
     assert web["buildCommand"] == "pip install -r requirements.txt"
