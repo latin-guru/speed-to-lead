@@ -8,6 +8,12 @@
 #
 # Free instances sleep when idle; the first request after that takes about 30-60 seconds.
 #
+# Interview mode (invite-only links that send ONE real email each; SMS is never real) is off
+# here: EMAIL_BACKEND=mock and INTERVIEW_EMAIL_ENABLED=false. To turn it on, set in the Render
+# dashboard (never in this file): EMAIL_BACKEND=smtp, INTERVIEW_EMAIL_ENABLED=true, SMTP_* and
+# EMAIL_FROM, plus DEMO_OWNER_* for the private account that creates invites. Keys marked
+# `sync: false` below are placeholders whose values only exist in the dashboard.
+#
 # Secrets: Render generates random values (generateValue). FIELD_ENCRYPTION_KEY is left
 # unset on purpose: it must be a Fernet key, and demo mode generates one at startup when
 # it is unset (the data is fake and reseeded on every start anyway).
@@ -54,3 +60,26 @@ services:
         generateValue: true
       - key: INBOUND_WEBHOOK_SECRET
         generateValue: true
+      # Interview mode. Mock and off unless changed in the Render dashboard.
+      - key: EMAIL_BACKEND
+        value: mock
+      - key: INTERVIEW_EMAIL_ENABLED
+        value: "false"
+      - key: EMAIL_FROM
+        sync: false
+      - key: EMAIL_FROM_NAME
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: DEMO_OWNER_EMAIL
+        sync: false
+      - key: DEMO_OWNER_PASSWORD
+        sync: false
+      - key: DEMO_OWNER_TOTP_SECRET
+        sync: false
