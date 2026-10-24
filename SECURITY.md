@@ -8,7 +8,12 @@ document explains how.
 - [Reporting a vulnerability](#reporting-a-vulnerability)
 - [Threat model](#threat-model)
 - [Protections, and where they live](#protections-and-where-they-live)
+- [How production handles it (not included in this repo)](#how-production-handles-it-not-included-in-this-repo)
 - [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
+
+Everything under "Protections" exists in this repository and names the code behind it.
+Practices that only exist in a production deployment are listed separately and labeled.
 
 ## Reporting a vulnerability
 
@@ -56,7 +61,7 @@ week. Fixes land on `main`; there are no maintained release branches.
 | `POST /api/leads` | anyone | IP rate limit, per-phone daily cap, strict validation |
 | `GET/POST /webhooks/meta` | Meta | verify token, HMAC-SHA256 signature, idempotency ledger, rate limit |
 | `POST /webhooks/inbound/sms` | SMS provider | HMAC-SHA256 signature, idempotency ledger, 16 KB cap, rate limit |
-| `/login`, `/logout` | dashboard users | CSRF, Origin check, IP rate limit, account lockout |
+| `/login`, `/login/2fa`, `/logout` | dashboard users | CSRF, Origin check, IP rate limit, account lockout, TOTP for admins |
 | `/dashboard/**` | dashboard users | session, role permission, per-lead ownership, CSRF on every POST |
 | `/admin/*`, `/api/leads/{id}`, `/api/tasks` | machine client | `Authorization: Bearer ADMIN_TOKEN` (fails closed if unset) |
 | `/api/metrics/*` | dashboard users, machine client | session or bearer token; aggregates only, no contact details |
@@ -124,6 +129,21 @@ flowchart LR
   doubling with each further failure up to an hour. While locked, the password is not even
   checked. Logins are also rate-limited per client IP. `app/services/users.py`
   (`LoginPolicy`), `app/api/deps.py` (`login_rate_limit`)
+- **Two-factor (TOTP).** Required for admins (until they set it up, they can only reach
+  their account page), optional for reps, not offered to read-only viewers. After a correct
+  password the browser gets only a signed five-minute "password checked" cookie, scoped to
+  `/login` and tied to the current password hash; the session is created after the code.
+  Codes allow one step of clock drift, and each step works once per user (no replay). The
+  enrollment QR code is drawn on the server and embedded as a `data:` URI, so the secret
+  never reaches a third-party service; the secret is encrypted with the field-encryption
+  key. Ten single-use recovery codes are shown once and stored as hashes. A wrong code
+  counts toward the same lockout as a wrong password, and a correct password alone does
+  not reset that count. An admin can reset another user's two-factor (lost phone), which
+  ends that user's sessions. Enroll, verify, recovery use, regenerate, disable and reset
+  are audited. `app/security/totp.py`, `app/services/mfa.py`, `app/web/auth.py`,
+  `app/web/account.py`, `app/web/admin.py`. In demo mode the demo admin has two-factor on
+  with a public secret and the code step shows its current code, so the real flow can be
+  tried without an authenticator app; demo accounts cannot change it.
 - **Server-side sessions.** The cookie holds a random id plus an HMAC; the database stores
   only a SHA-256 of the id. Sessions end after 12 hours (absolute) or 30 minutes idle. The
   dashboard's background refresh does not count as activity. Logging in always creates a
@@ -206,7 +226,7 @@ flowchart LR
 
 ### Audit log
 
-`audit_events` records logins (success and failure), logouts, contact reveals, stage
+`audit_events` records logins (success and failure), two-factor events, logouts, contact reveals, stage
 changes, assignments, task closes, dead-letter retries, the kill switch, user changes,
 retention runs, and refused attempts on other people's leads. Each event has the actor,
 role, action, target, outcome, a scrubbed summary (masked and length-capped, never contact
@@ -245,6 +265,21 @@ transaction as the action. Admins can filter them at `/dashboard/admin/audit`.
   requirements, and CodeQL (security-extended queries). Every action is pinned to a full
   commit SHA, workflows get read-only tokens by default, and superseded runs are cancelled.
 
+## How production handles it (not included in this repo)
+
+These are practices of the production deployment this showcase is based on. They are not
+in this repository, so nothing here claims they are.
+
+- **Backups:** the database is backed up encrypted, stored off the server, and restores
+  are tested on a schedule.
+- **Messaging compliance:** real SMS sending goes through a carrier-registered (A2P)
+  sender with the provider's opt-out handling in addition to the app's own STOP rules, and
+  only to people who asked to be contacted.
+- **Secrets** live in the hosting platform's secret store, not in files, and are rotated
+  when people or providers change.
+- **TLS** is terminated by the platform in front of the app, which is what makes the
+  Secure cookies and HSTS above meaningful.
+
 ## Known limitations
 
 - **Rate limits are per process.** The token buckets live in memory. Several web
@@ -254,8 +289,11 @@ transaction as the action. Admins can filter them at `/dashboard/admin/audit`.
   trade-off against password guessing). The lock is short at first and an admin can unlock
   an account. In demo mode the lock is capped at 60 seconds because the demo accounts are
   public.
-- **No multi-factor authentication and no self-service password reset.** Admins set
-  passwords; there is no email flow.
+- **No self-service password reset.** Admins set passwords; there is no email flow.
+- **Two-factor enrollment trusts the first login.** An admin without two-factor proves
+  only their password before setting it up, so create admins with
+  `python -m app.cli create-user` and have them enroll right away. TOTP is phishable in
+  real time; passkeys would not be.
 - **Not everything is encrypted.** Names, lead messages, SMS reply text in the timeline and
   task notes are stored in plaintext (masked on screen and in logs). Only phone and email
   (and outbox recipients) are encrypted.
@@ -264,7 +302,7 @@ transaction as the action. Admins can filter them at `/dashboard/admin/audit`.
   `BLIND_INDEX_KEY` means recomputing every index (a new migration); `rotate-keys` does
   not do it.
 - **The audit log is not tamper-evident.** It is append-only by convention; a database
-  administrator could change it. Shipping events to external storage would fix that.
+  administrator could change it.
 - **IP hashes are keyed with `SECRET_KEY`.** If the key is unset (development) or changes,
   hashes from before and after cannot be compared.
 - **Swagger UI on `/docs` loads from a CDN without subresource integrity.** Turn the docs
@@ -276,3 +314,13 @@ transaction as the action. Admins can filter them at `/dashboard/admin/audit`.
   account.
 - **The demo accounts are public on purpose** and reseeded on every start. In demo mode
   user changes are turned off; for a public deployment, set `DEMO_ROLES=viewer`.
+
+## Roadmap
+
+Planned, not built:
+
+- Passkeys (WebAuthn) as a phishing-resistant second factor.
+- Self-service password reset by email.
+- Shipping audit events to tamper-evident external storage.
+- A shared rate-limit store for running several web processes.
+- OAuth token refresh for the Salesforce skeleton.
