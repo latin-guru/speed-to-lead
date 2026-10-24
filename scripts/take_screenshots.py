@@ -5,7 +5,8 @@ Usage:
     python scripts/take_screenshots.py [--url http://127.0.0.1:8000] [--out docs/screenshots]
 
 Needs the ``playwright`` package and a Chromium it can find (not a project dependency).
-It logs in with the demo token shown on the login page, so it only ever sees fake data.
+It logs in as the demo rep with the password shown on the login page, so it only ever sees
+fake data.
 """
 
 from __future__ import annotations
@@ -34,11 +35,11 @@ def main() -> int:
             color_scheme=args.scheme,
         )
         page.goto(f"{args.url}/login")
-        page.wait_for_selector("#demo-token")
+        page.wait_for_selector("#demo-password")
         page.screenshot(path=str(args.out / "login.png"))
 
-        token = page.inner_text("#demo-token").strip()
-        page.fill("#token", token)
+        page.fill("#email", "rep@example.com")
+        page.fill("#password", page.inner_text("#demo-password").strip())
         page.click("button[type=submit]")
         page.wait_for_url("**/dashboard")
         page.wait_for_function(

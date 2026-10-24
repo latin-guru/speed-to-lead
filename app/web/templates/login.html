@@ -6,7 +6,7 @@
   <p class="muted">Use your own account. What you can do depends on your role.</p>
   {% if demo_accounts %}
   <div class="callout" role="note">
-    <p><strong>Demo accounts</strong> (fake data only). Password for all: <code class="pick">{{ demo_password }}</code></p>
+    <p><strong>Demo accounts</strong> (fake data only). Password for all: <code class="pick" id="demo-password">{{ demo_password }}</code></p>
     <ul class="demo-accounts">
       {% for email, role in demo_accounts %}<li><code class="pick">{{ email }}</code> <span class="muted">{{ role }}</span></li>{% endfor %}
     </ul>
