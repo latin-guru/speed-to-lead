@@ -24,8 +24,8 @@ T0 = datetime(2026, 3, 2, 15, tzinfo=UTC)
 def test_settings_reject_bad_timezone_and_empty_quiet_window() -> None:
     with pytest.raises(ValidationError, match="BUSINESS_TIMEZONE"):
         make_settings(business_timezone="Mars/Olympus")
-    with pytest.raises(ValidationError, match="must differ"):
-        make_settings(quiet_hours_start=8, quiet_hours_end=8)
+    with pytest.raises(ValidationError, match="SEND_WINDOWS"):
+        make_settings(send_windows="mon 09:00-09:00")
 
 
 def test_utc_type_rejects_naive_and_normalizes() -> None:

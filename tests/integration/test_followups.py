@@ -119,10 +119,10 @@ def test_email_only_lead_skips_sms_steps(
 # --------------------------------------------------------------------------- guards
 
 
-def test_quiet_hours_defers_to_local_morning(clock: FixedClock) -> None:
-    for app, _ in _app(quiet_hours_enabled=True, business_timezone="America/Chicago"):
-        clock.now = datetime(2026, 3, 3, 4, 30, tzinfo=UTC)  # 22:30 Monday in Chicago
-        seed_lead(app, clock)
+def test_after_hours_lead_gets_the_after_hours_ack_at_opening(clock: FixedClock) -> None:
+    for app, c in _app(quiet_hours_enabled=True, business_timezone="America/New_York"):
+        clock.now = datetime(2026, 3, 3, 3, 30, tzinfo=UTC)  # 22:30 Monday in New York
+        lead_id = seed_lead(app, clock)
         worker = make_worker(app, clock)
         worker.run_until_idle()
         assert _outbox(app) == []
@@ -130,11 +130,43 @@ def test_quiet_hours_defers_to_local_morning(clock: FixedClock) -> None:
         assert ack.status == "queued"
         assert ack.attempts == 0  # waiting is not failing
         assert ack.last_error == "deferred:quiet_hours"
-        assert ack.run_at == datetime(2026, 3, 3, 14, 0, tzinfo=UTC)  # 08:00 CST
+        assert ack.run_at == datetime(2026, 3, 3, 14, 0, tzinfo=UTC)  # 09:00 EST
 
         clock.now = ack.run_at
         worker.run_until_idle()
-        assert [m.step for m in _outbox(app)] == ["ack_sms", "ack_email"]
+        sms, email = _outbox(app)
+        assert (sms.step, email.step) == ("ack_sms", "ack_email")
+        assert "thanks for reaching out last night" in sms.body
+        assert "will call you this morning" in sms.body
+        assert "within 15 minutes" not in sms.body + email.body
+        assert email.subject == "We got your request, and we'll call you this morning"
+        sent = [
+            a
+            for a in c.get(f"/api/leads/{lead_id}", headers=ADMIN).json()["timeline"]
+            if a["kind"] == "followup_sent"
+        ]
+        assert {a["detail"]["variant"] for a in sent} == {"after_hours"}
+        assert _lead(app, lead_id).first_response_at == ack.run_at
+
+
+def test_saturday_night_lead_waits_for_sunday_afternoon(clock: FixedClock) -> None:
+    for app, _ in _app(quiet_hours_enabled=True):
+        clock.now = datetime(2026, 3, 8, 2, 0, tzinfo=UTC)  # 21:00 Saturday in New York
+        seed_lead(app, clock)
+        worker = make_worker(app, clock)
+        worker.run_until_idle()
+        opens = _jobs(app)["ack_sms"].run_at
+        assert opens == datetime(2026, 3, 8, 19, 0, tzinfo=UTC)  # Sunday 15:00 EDT
+        clock.now = opens
+        worker.run_until_idle()
+        assert "will call you this afternoon" in _outbox(app)[0].body
+
+
+def test_in_window_lead_gets_the_standard_ack(clock: FixedClock) -> None:
+    for app, _ in _app(quiet_hours_enabled=True):
+        seed_lead(app, clock)  # Monday 10:00 in New York
+        make_worker(app, clock).run_until_idle()
+        assert "within 15 minutes" in _outbox(app)[0].body
 
 
 def test_quiet_hours_use_the_leads_own_timezone(clock: FixedClock) -> None:
@@ -142,11 +174,24 @@ def test_quiet_hours_use_the_leads_own_timezone(clock: FixedClock) -> None:
         seed_lead(app, clock, timezone="America/Los_Angeles")  # 07:00 there
         make_worker(app, clock).run_until_idle()
         assert _outbox(app) == []
-        assert _jobs(app)["ack_sms"].run_at == datetime(2026, 3, 2, 16, 0, tzinfo=UTC)
+        assert _jobs(app)["ack_sms"].run_at == datetime(2026, 3, 2, 17, 0, tzinfo=UTC)
+
+
+def test_default_caps_fit_the_default_sequence(clock: FixedClock) -> None:
+    for app, _ in _app():  # 3 touches / 7 days, 24h gap: ack pair + reminder + nudge
+        seed_lead(app, clock)
+        worker = make_worker(app, clock)
+        worker.run_until_idle()
+        clock.advance(days=1)
+        worker.run_until_idle()
+        clock.advance(days=2)
+        worker.run_until_idle()
+        steps = [m.step for m in _outbox(app)]
+        assert steps == ["ack_sms", "ack_email", "reminder_1d", "nudge_3d"]
 
 
 def test_weekly_cap_defers_extra_touches(clock: FixedClock) -> None:
-    for app, _ in _app(max_touches_per_week=2):
+    for app, _ in _app(max_touches_per_week=1):
         seed_lead(app, clock)
         worker = make_worker(app, clock)
         worker.run_until_idle()

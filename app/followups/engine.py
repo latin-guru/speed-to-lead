@@ -13,9 +13,17 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.followups.guards import check_frequency, lead_zone, next_send_time, sends_paused
+from app.followups.guards import (
+    SendWindow,
+    check_frequency,
+    lead_zone,
+    next_send_time,
+    outside_window,
+    sends_paused,
+)
 from app.followups.senders import MessageSender, OutboundMessage
 from app.followups.sequence import Channel, Sequence, render
+from app.followups.wording import call_phrase, received_phrase
 from app.jobs import kinds
 from app.jobs.queue import Deferred, PermanentJobError, cancel_pending, enqueue
 from app.models import Lead, LeadStage, OutboxMessage, SequenceState
@@ -33,9 +41,8 @@ class SendPolicy:
     company: str
     callback_minutes: int
     business_timezone: str
-    quiet_hours: bool
-    quiet_start: int
-    quiet_end: int
+    quiet_hours: bool  # enforce the sending window
+    window: SendWindow
     max_per_week: int
     min_gap: timedelta
     env_paused: bool
@@ -145,11 +152,9 @@ def send_step(
     if sends_paused(session, env_paused=policy.env_paused):
         raise Deferred(now + policy.kill_switch_recheck, "kill_switch")
 
+    zone = lead_zone(lead.timezone, policy.business_timezone)
     if policy.quiet_hours:
-        zone = lead_zone(lead.timezone, policy.business_timezone)
-        opens = next_send_time(
-            now, zone, quiet_start=policy.quiet_start, quiet_end=policy.quiet_end
-        )
+        opens = next_send_time(now, zone, policy.window)
         if opens > now:
             raise Deferred(opens, "quiet_hours")
 
@@ -174,15 +179,27 @@ def send_step(
             name=lead.name,
             company=policy.company,
             callback_minutes=policy.callback_minutes,
+            received_when=received_phrase(lead.created_at, now, zone),
+            call_when=call_phrase(now, zone),
         )
+
+    # Arrived outside the window: this send is the window opening, so use the variant that
+    # says when we will call instead of "within N minutes".
+    after_hours = (
+        policy.quiet_hours
+        and step.after_hours_body is not None
+        and outside_window(lead.created_at, zone, policy.window)
+    )
+    body = step.after_hours_body if after_hours and step.after_hours_body else step.body
+    subject = step.after_hours_subject if after_hours and step.after_hours_subject else step.subject
 
     message = OutboundMessage(
         lead_id=lead.id,
         step=step.id,
         channel=step.channel,
         to_address=to_address,
-        subject=fill(step.subject) if step.subject else None,
-        body=fill(step.body),
+        subject=fill(subject) if subject else None,
+        body=fill(body),
         idempotency_key=key,
         transactional=step.transactional,
     )
@@ -195,7 +212,12 @@ def send_step(
         lead,
         "followup_sent",
         f"system:{sender.name}",
-        {"step": step.id, "channel": step.channel.value, "sender": sender.name},
+        {
+            "step": step.id,
+            "channel": step.channel.value,
+            "sender": sender.name,
+            "variant": "after_hours" if after_hours else "standard",
+        },
     )
     log.info(
         "followup_sent",

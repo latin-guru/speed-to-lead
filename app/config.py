@@ -66,12 +66,14 @@ class Settings(BaseSettings):
 
     # Follow-up sequence and send guards
     followup_sequence_path: str | None = None  # YAML; None -> the bundled default sequence
-    business_timezone: str = "America/Chicago"
+    business_timezone: str = "America/New_York"
+    # Enforce the sending window below (lead-local time; business timezone if unknown).
     quiet_hours_enabled: bool = True
-    quiet_hours_start: int = Field(default=21, ge=0, le=23)  # no sends from 21:00 ...
-    quiet_hours_end: int = Field(default=8, ge=0, le=23)  # ... until 08:00 lead-local time
-    max_touches_per_week: int = Field(default=4, ge=1)
-    min_touch_gap_hours: float = Field(default=12.0, ge=0)
+    send_windows: str = "mon-sat 09:00-20:00; sun 15:00-18:00"
+    # "One voice": at most this many touches per person in a rolling 7 days. The instant
+    # SMS + email acknowledgment counts as one touch.
+    max_touches_per_week: int = Field(default=3, ge=1)
+    min_touch_gap_hours: float = Field(default=24.0, ge=0)
     callback_minutes: int = Field(default=15, ge=1, le=240)
     sends_paused: bool = False  # env kill switch; the DB flag can also pause
     kill_switch_recheck_seconds: float = Field(default=300.0, gt=0)
@@ -88,8 +90,12 @@ class Settings(BaseSettings):
             ZoneInfo(self.business_timezone)
         except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ValueError(f"unknown BUSINESS_TIMEZONE: {self.business_timezone!r}") from exc
-        if self.quiet_hours_start == self.quiet_hours_end:
-            raise ValueError("QUIET_HOURS_START and QUIET_HOURS_END must differ")
+        from app.followups.guards import SendWindow
+
+        try:
+            SendWindow.parse(self.send_windows)
+        except ValueError as exc:
+            raise ValueError(f"invalid SEND_WINDOWS: {exc}") from exc
         return self
 
     @model_validator(mode="after")

@@ -16,6 +16,7 @@ from app.config import Settings
 from app.crm.base import CRMAdapter
 from app.crm.sync import build_crm_adapter
 from app.followups.engine import SendPolicy
+from app.followups.guards import SendWindow
 from app.followups.senders import mock_senders
 from app.followups.sequence import Sequence, load_sequence
 from app.jobs.handlers import JobContext
@@ -27,8 +28,7 @@ def build_policy(settings: Settings) -> SendPolicy:
         callback_minutes=settings.callback_minutes,
         business_timezone=settings.business_timezone,
         quiet_hours=settings.quiet_hours_enabled,
-        quiet_start=settings.quiet_hours_start,
-        quiet_end=settings.quiet_hours_end,
+        window=SendWindow.parse(settings.send_windows),
         max_per_week=settings.max_touches_per_week,
         min_gap=timedelta(hours=settings.min_touch_gap_hours),
         env_paused=settings.sends_paused,

@@ -20,7 +20,12 @@ def test_default_sequence_loads() -> None:
     assert seq.step("ack_sms").transactional
     assert seq.step("nope") is None
     for step in seq.steps:
-        assert "{" not in render(step.body, name="Jo Lee", company="Acme", callback_minutes=5)
+        for text in (step.body, step.after_hours_body or "", step.after_hours_subject or ""):
+            assert "{" not in render(text, name="Jo Lee", company="Acme", callback_minutes=5)
+    ack = seq.step("ack_sms")
+    assert ack is not None
+    assert ack.after_hours_body is not None
+    assert "minutes" not in ack.after_hours_body
 
 
 def test_custom_sequence_file(tmp_path: Path) -> None:
@@ -40,6 +45,9 @@ def test_custom_sequence_file(tmp_path: Path) -> None:
         {"body": "Hi {0}"},  # positional not allowed
         {"channel": "email"},  # email needs a subject
         {"subject": "nope"},  # sms cannot have one
+        {"after_hours_subject": "nope"},  # sms cannot have one, after hours either
+        {"after_hours_body": "Hi {phone}"},
+        {"channel": "email", "subject": "s", "after_hours_subject": "x"},  # needs a body
         {"channel": "fax"},
         {"delay_minutes": -1},
         {"id": "Bad Id"},

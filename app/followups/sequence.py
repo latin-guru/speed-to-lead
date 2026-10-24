@@ -11,7 +11,9 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_SEQUENCE_PATH = Path(__file__).parent / "default_sequence.yaml"
-PLACEHOLDERS = frozenset({"first_name", "company", "callback_minutes"})
+PLACEHOLDERS = frozenset(
+    {"first_name", "company", "callback_minutes", "received_when", "call_when"}
+)
 SMS_MAX = 320  # two SMS segments
 
 
@@ -40,8 +42,12 @@ class SequenceStep(BaseModel):
     transactional: bool = False
     subject: str | None = Field(default=None, max_length=200)
     body: str = Field(min_length=1, max_length=2000)
+    # Used instead of body/subject when the lead arrived outside the sending window, so the
+    # first message does not promise a callback "within 15 minutes" at 2 a.m.
+    after_hours_body: str | None = Field(default=None, min_length=1, max_length=2000)
+    after_hours_subject: str | None = Field(default=None, max_length=200)
 
-    @field_validator("body", "subject")
+    @field_validator("body", "subject", "after_hours_body", "after_hours_subject")
     @classmethod
     def _known_placeholders(cls, v: str | None) -> str | None:
         if v is not None:
@@ -54,8 +60,10 @@ class SequenceStep(BaseModel):
     def _channel_rules(self) -> SequenceStep:
         if self.channel is Channel.EMAIL and not self.subject:
             raise ValueError(f"email step {self.id!r} needs a subject")
-        if self.channel is Channel.SMS and self.subject:
+        if self.channel is Channel.SMS and (self.subject or self.after_hours_subject):
             raise ValueError(f"sms step {self.id!r} cannot have a subject")
+        if self.after_hours_subject and not self.after_hours_body:
+            raise ValueError(f"step {self.id!r}: after_hours_subject needs after_hours_body")
         return self
 
 
@@ -85,11 +93,21 @@ def first_name(name: str) -> str:
     return name.split()[0] if name.split() else "there"
 
 
-def render(template: str, *, name: str, company: str, callback_minutes: int) -> str:
+def render(
+    template: str,
+    *,
+    name: str,
+    company: str,
+    callback_minutes: int,
+    received_when: str = "recently",
+    call_when: str = "soon",
+) -> str:
     """Fill a template. Lead data is only ever a *value*, never parsed as a template."""
     values = {
         "first_name": first_name(name),
         "company": company,
         "callback_minutes": str(callback_minutes),
+        "received_when": received_when,
+        "call_when": call_when,
     }
     return template.format_map(values)

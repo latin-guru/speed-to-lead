@@ -3,9 +3,15 @@
 # delay_minutes is measured from when the lead was captured. Steps marked transactional
 # answer the lead's own request, so they skip the minimum-gap rule (an SMS and an email can
 # go out together); they still respect quiet hours, the weekly cap, the kill switch and
-# opt-outs.
+# opt-outs. The instant SMS + email pair counts as one touch toward the weekly cap.
 #
-# Placeholders: {first_name} {company} {callback_minutes}
+# after_hours_body / after_hours_subject replace body / subject when the lead arrived
+# outside the sending window: the message then goes out when the window opens and says so,
+# instead of promising a callback within minutes.
+#
+# Placeholders: {first_name} {company} {callback_minutes} {received_when} {call_when}
+#   received_when: "last night", "earlier today", "yesterday", "on Saturday"
+#   call_when:     "this morning", "this afternoon", "this evening"
 name: new_lead_default
 steps:
   - id: ack_sms
@@ -15,6 +21,9 @@ steps:
     body: >-
       Hi {first_name}, thanks for reaching out to {company}. A specialist will call you
       within {callback_minutes} minutes. Reply STOP to opt out.
+    after_hours_body: >-
+      Hi {first_name}, thanks for reaching out {received_when}. {company} will call you
+      {call_when}. Reply STOP to opt out.
 
   - id: ack_email
     channel: email
@@ -27,6 +36,13 @@ steps:
       Thanks for contacting {company}. A specialist will call you within {callback_minutes} minutes to talk through your project.
 
       If now is not a good time, just reply to this email with a better one.
+    after_hours_subject: "We got your request, and we'll call you {call_when}"
+    after_hours_body: |-
+      Hi {first_name},
+
+      Thanks for reaching out {received_when}. Our team is back now, and a specialist from {company} will call you {call_when} to talk through your project.
+
+      If that is not a good time, just reply to this email with a better one.
 
   - id: reminder_1d
     channel: sms
