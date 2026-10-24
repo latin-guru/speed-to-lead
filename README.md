@@ -1,7 +1,7 @@
 # speed-to-lead
 
-[![CI](../../actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Security](../../actions/workflows/security.yml/badge.svg)](../../actions/workflows/security.yml)
+[![CI](https://github.com/latin-guru/speed-to-lead/actions/workflows/ci.yml/badge.svg)](https://github.com/latin-guru/speed-to-lead/actions/workflows/ci.yml)
+[![Security](https://github.com/latin-guru/speed-to-lead/actions/workflows/security.yml/badge.svg)](https://github.com/latin-guru/speed-to-lead/actions/workflows/security.yml)
 ![Coverage floor](https://img.shields.io/badge/coverage-%E2%89%A595%25%20enforced%20in%20CI-brightgreen)
 
 This is a public showcase version of a lead pipeline I run in production. Business rules, prompts, and client data are kept private.
