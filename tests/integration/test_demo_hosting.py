@@ -135,7 +135,8 @@ def test_render_blueprint_is_a_safe_demo(monkeypatch: pytest.MonkeyPatch) -> Non
     assert len(services) == 1
     web = services[0]
     assert web["type"] == "web"
-    assert web["plan"] in ("free", "starter")  # starter while interviewing (always on, SMTP allowed)
+    # starter while interviewing: always on, and SMTP is allowed
+    assert web["plan"] in ("free", "starter")
     assert web["runtime"] == "python"
     assert web["healthCheckPath"] == "/healthz"
     assert web["buildCommand"] == "pip install -r requirements.txt"
