@@ -1,6 +1,6 @@
 [project]
 name = "speed-to-lead"
-version = "0.5.0"
+version = "1.0.0"
 description = "Lead capture, AI scoring, job queue, guarded follow-ups and an operator dashboard for a fictional home-services company."
 requires-python = ">=3.11"
 license = { text = "Proprietary - see LICENSE" }
