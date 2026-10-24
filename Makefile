@@ -8,7 +8,7 @@ install:
 	$(PIP) install -r requirements-dev.txt
 
 test:
-	$(PY) -m pytest --cov=app --cov-report=term-missing
+	$(PY) -m pytest --cov=app --cov-report=term-missing --cov-fail-under=95
 
 lint:
 	$(PY) -m ruff check .
