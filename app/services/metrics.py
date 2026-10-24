@@ -242,7 +242,7 @@ class ActivityRow:
     summary: str
 
 
-def _summary(kind: str, detail: dict[str, Any]) -> str:
+def activity_summary(kind: str, detail: dict[str, Any]) -> str:
     """A short, PII-free line per activity kind. Free text (replies, notes) is left out."""
     d = detail or {}
     texts: dict[str, str] = {
@@ -274,7 +274,7 @@ def recent_activity(session: Session, limit: int = 15) -> list[ActivityRow]:
     rows = session.execute(
         select(Activity, Lead.name)
         .join(Lead, Lead.id == Activity.lead_id)
-        .order_by(Activity.id.desc())
+        .order_by(Activity.created_at.desc(), Activity.id.desc())
         .limit(limit)
     )
     return [
@@ -285,7 +285,7 @@ def recent_activity(session: Session, limit: int = 15) -> list[ActivityRow]:
             kind=a.kind,
             actor=a.actor,
             created_at=a.created_at,
-            summary=_summary(a.kind, a.detail),
+            summary=activity_summary(a.kind, a.detail),
         )
         for a, name in rows
     ]

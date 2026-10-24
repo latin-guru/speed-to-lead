@@ -10,6 +10,8 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AIProviderName = Literal["mock", "claude", "grok"]
+# Public on purpose: shown on the demo login page, only valid in DEMO_MODE (fake data).
+DEFAULT_DEMO_TOKEN = "copperline-demo"  # noqa: S105  # pragma: allowlist secret
 
 
 class Settings(BaseSettings):
@@ -78,6 +80,22 @@ class Settings(BaseSettings):
     sends_paused: bool = False  # env kill switch; the DB flag can also pause
     kill_switch_recheck_seconds: float = Field(default=300.0, gt=0)
 
+    # Dashboard login (temporary until real users and roles): a signed session cookie.
+    session_ttl_hours: float = Field(default=12.0, gt=0, le=24 * 7)
+
+    # Demo mode: reset + seed a SQLite DB with fake data on start, and run the worker and a
+    # lead simulator inside the web process (one-service hosting). Never touches Postgres.
+    demo_mode: bool = False
+    # Login token for the demo dashboard, shown on the login page in demo mode. It only
+    # opens the dashboard (fake data), never the bearer-token operator API.
+    demo_token: SecretStr | None = None
+    demo_seed: int = 4242
+    demo_leads: int = Field(default=150, ge=0, le=5000)
+    demo_interval_min_seconds: float = Field(default=5.0, gt=0)
+    demo_interval_max_seconds: float = Field(default=10.0, gt=0)
+    # Where the simulator posts (the app itself). None -> http://127.0.0.1:$PORT (8000).
+    demo_base_url: str | None = None
+
     # CRM sync: mock (default, in-process, no network) | hubspot (skeleton) | none
     crm_provider: Literal["mock", "hubspot", "none"] = "mock"
     hubspot_token: SecretStr | None = None
@@ -96,6 +114,29 @@ class Settings(BaseSettings):
             SendWindow.parse(self.send_windows)
         except ValueError as exc:
             raise ValueError(f"invalid SEND_WINDOWS: {exc}") from exc
+        return self
+
+    @model_validator(mode="after")
+    def _check_demo(self) -> Settings:
+        if not self.demo_mode:
+            return self
+        if not self.database_url.startswith("sqlite"):
+            raise ValueError("DEMO_MODE resets the database, so it only runs on SQLite")
+        if self.demo_interval_min_seconds > self.demo_interval_max_seconds:
+            raise ValueError("DEMO_INTERVAL_MIN_SECONDS must be <= the max")
+        # The demo talks to itself through the real, authenticated endpoints. Secrets that
+        # were not provided are random per process; nothing here is a real credential.
+        for name in (
+            "meta_app_secret",
+            "meta_verify_token",
+            "inbound_webhook_secret",
+            "admin_token",
+        ):
+            value = getattr(self, name)
+            if value is None or not value.get_secret_value():
+                setattr(self, name, SecretStr(secrets.token_urlsafe(24)))
+        if self.demo_token is None or not self.demo_token.get_secret_value():
+            self.demo_token = SecretStr(DEFAULT_DEMO_TOKEN)
         return self
 
     @model_validator(mode="after")

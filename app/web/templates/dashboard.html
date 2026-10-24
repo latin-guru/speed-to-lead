@@ -1,0 +1,81 @@
+{% extends "dash_base.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Overview</h1>
+    <p class="muted">KPIs cover the last {{ kpis.period_days }} days; charts the last 30 (response times 14).</p>
+  </div>
+  <p class="live" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="updated">Live</span></p>
+</div>
+
+<section class="kpis" aria-label="Key numbers" id="kpis" data-summary-url="/api/metrics/summary" data-tz="{{ tz }}">
+  <article class="kpi">
+    <h2>Leads, 7 days</h2>
+    <p class="value" data-kpi="leads">{{ kpis.leads }}</p>
+    <p class="hint" data-kpi="leads_delta">vs {{ kpis.leads_previous }} the week before</p>
+  </article>
+  <article class="kpi">
+    <h2>Median first response</h2>
+    <p class="value" data-kpi="median_first_response_seconds">{{ duration(kpis.median_first_response_seconds) }}</p>
+    <p class="hint">capture to first message or call</p>
+  </article>
+  <article class="kpi">
+    <h2>Win rate, 30 days</h2>
+    <p class="value" data-kpi="win_rate">{{ '%.0f%%' % (kpis.win_rate * 100) if kpis.win_rate is not none else '-' }}</p>
+    <p class="hint">New → Won</p>
+  </article>
+  <article class="kpi">
+    <h2>Average AI score</h2>
+    <p class="value" data-kpi="average_score">{{ kpis.average_score if kpis.average_score is not none else '-' }}</p>
+    <p class="hint">0-100, suggestion only</p>
+  </article>
+  <article class="kpi">
+    <h2>Open handoffs</h2>
+    <p class="value" data-kpi="open_tasks">{{ kpis.open_tasks }}</p>
+    <p class="hint">waiting for a person</p>
+  </article>
+  <article class="kpi" data-kpi-tile="dead_jobs">
+    <h2>Dead-letter jobs</h2>
+    <p class="value" data-kpi="dead_jobs">{{ kpis.dead_jobs }}</p>
+    <p class="hint status" data-kpi="dead_status">{{ 'needs attention' if kpis.dead_jobs else 'all clear' }}</p>
+  </article>
+</section>
+
+<section class="grid">
+  <article class="card chart-card">
+    <h2 id="h-funnel">Pipeline funnel</h2>
+    <p class="muted small">Leads that reached each stage or a later one, with stage-to-stage conversion.</p>
+    <div class="chart-box"><canvas id="chart-funnel" role="img" aria-labelledby="h-funnel"></canvas></div>
+    <ol class="conv" id="funnel-conv" aria-label="Conversion between stages"></ol>
+    <details><summary>Show data</summary><table class="data" id="table-funnel"></table></details>
+  </article>
+  <article class="card chart-card">
+    <h2 id="h-sources">Leads by source</h2>
+    <p class="muted small">Last 30 days.</p>
+    <div class="chart-box"><canvas id="chart-sources" role="img" aria-labelledby="h-sources"></canvas></div>
+    <details><summary>Show data</summary><table class="data" id="table-sources"></table></details>
+  </article>
+  <article class="card chart-card">
+    <h2 id="h-scores">AI score distribution</h2>
+    <p class="muted small">Scored leads per 10-point bucket, last 30 days.</p>
+    <div class="chart-box"><canvas id="chart-scores" role="img" aria-labelledby="h-scores"></canvas></div>
+    <details><summary>Show data</summary><table class="data" id="table-scores"></table></details>
+  </article>
+  <article class="card chart-card">
+    <h2 id="h-trend">First-response time by day</h2>
+    <p class="muted small">Median per day, minutes. After-hours leads wait for the sending window.</p>
+    <div class="chart-box"><canvas id="chart-trend" role="img" aria-labelledby="h-trend"></canvas></div>
+    <details><summary>Show data</summary><table class="data" id="table-trend"></table></details>
+  </article>
+  <article class="card feed-card">
+    <h2>Recent activity</h2>
+    <ul class="feed" id="feed" aria-live="off"></ul>
+    <p class="small"><a href="/dashboard/leads">All leads →</a></p>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/vendor/chart.umd.min.js?v={{ chartjs_version }}" integrity="{{ chartjs_sri }}" crossorigin="anonymous"></script>
+<script src="/static/dashboard.js?v={{ version }}"></script>
+{% endblock %}

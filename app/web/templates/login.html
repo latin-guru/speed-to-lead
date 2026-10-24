@@ -1,0 +1,26 @@
+{% extends "dash_base.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<section class="login card">
+  <h1>Log in to the dashboard</h1>
+  <p class="muted">Temporary access: paste the operator token. Per-user accounts and roles come next.</p>
+  {% if demo_token %}
+  <div class="callout" role="note">
+    <p><strong>Demo credentials</strong> (fake data only):</p>
+    <p class="token-row"><code id="demo-token">{{ demo_token }}</code></p>
+  </div>
+  {% endif %}
+  {% if not configured %}
+  <p class="error" role="alert">No login is configured. Set ADMIN_TOKEN (or run the demo).</p>
+  {% endif %}
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form method="post" action="/login" class="stack">
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="token">Access token</label>
+    <input id="token" name="token" type="password" autocomplete="current-password" required
+           {% if demo_token %}value="{{ demo_token }}"{% endif %} autofocus>
+    <button type="submit" class="btn">Log in</button>
+  </form>
+</section>
+{% endblock %}

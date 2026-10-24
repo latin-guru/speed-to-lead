@@ -128,9 +128,9 @@ def test_after_hours_phrases(created: datetime, sent: datetime, received: str, c
 
 
 def test_lead_zone_falls_back_to_business_tz() -> None:
-    assert lead_zone("America/Denver", "America/Chicago").key == "America/Denver"
-    assert lead_zone(None, "America/Chicago").key == "America/Chicago"
-    assert lead_zone("Not/AZone", "America/Chicago").key == "America/Chicago"
+    assert str(lead_zone("America/Denver", "America/Chicago")) == "America/Denver"
+    assert str(lead_zone(None, "America/Chicago")) == "America/Chicago"
+    assert str(lead_zone("Not/AZone", "America/Chicago")) == "America/Chicago"
 
 
 @pytest.fixture

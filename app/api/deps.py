@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import time
 from collections.abc import Iterator
 from typing import Annotated
 
@@ -11,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings
 from app.security.rate_limit import TokenBucketLimiter
+from app.security.session import SESSION_COOKIE, DashboardSession, Role, read_session
 
 
 def get_session(request: Request) -> Iterator[Session]:
@@ -63,3 +65,22 @@ def require_admin(request: Request) -> None:
 
 
 AdminDep = Depends(require_admin)
+
+
+def session_tokens(settings: Settings) -> dict[Role, str | None]:
+    """The token each dashboard role logs in with. ``demo`` only exists in demo mode."""
+    admin = settings.admin_token.get_secret_value() if settings.admin_token else None
+    demo = None
+    if settings.demo_mode and settings.demo_token is not None:
+        demo = settings.demo_token.get_secret_value() or None
+    return {"admin": admin or None, "demo": demo}
+
+
+def dashboard_session(request: Request) -> DashboardSession | None:
+    settings: Settings = request.app.state.settings
+    return read_session(
+        settings.secret_key_bytes,
+        request.cookies.get(SESSION_COOKIE),
+        session_tokens(settings),
+        now=time.time(),
+    )

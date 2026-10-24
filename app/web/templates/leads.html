@@ -1,0 +1,68 @@
+{% extends "dash_base.html" %}
+{% block title %}Leads{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Leads</h1>
+    <p class="muted">{{ total }} matching. Newest first.</p>
+  </div>
+</div>
+<form method="get" class="filters card" aria-label="Filter leads">
+  <div class="field">
+    <label for="f-stage">Stage</label>
+    <select id="f-stage" name="stage">
+      <option value="">Any</option>
+      {% for s in stages %}<option value="{{ s }}" {% if filters.stage == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-source">Source</label>
+    <select id="f-source" name="source">
+      <option value="">Any</option>
+      {% for s in sources %}<option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="f-min">Min score</label>
+    <input id="f-min" name="min_score" type="number" min="0" max="100" inputmode="numeric" value="{{ filters.min_score if filters.min_score is not none else '' }}">
+  </div>
+  <div class="field">
+    <label for="f-max">Max score</label>
+    <input id="f-max" name="max_score" type="number" min="0" max="100" inputmode="numeric" value="{{ filters.max_score if filters.max_score is not none else '' }}">
+  </div>
+  <div class="field actions">
+    <button type="submit" class="btn">Apply</button>
+    <a class="btn btn-quiet" href="/dashboard/leads">Reset</a>
+  </div>
+</form>
+<div class="card table-wrap">
+  <table class="data leads">
+    <caption class="sr-only">Leads</caption>
+    <thead><tr>
+      <th scope="col">Received</th><th scope="col">Name</th><th scope="col">Source</th>
+      <th scope="col">Stage</th><th scope="col" class="num">Score</th><th scope="col">Suggests</th>
+      <th scope="col" class="num">First response</th>
+    </tr></thead>
+    <tbody>
+    {% for l in leads %}
+      <tr>
+        <td>{{ local(l.created_at) }}</td>
+        <td><a href="/dashboard/leads/{{ l.id }}">{{ l.name }}</a>{% if l.opted_out %} <span class="tag">opted out</span>{% endif %}</td>
+        <td>{{ l.source }}</td>
+        <td><span class="stage stage-{{ l.stage }}">{{ l.stage }}</span></td>
+        <td class="num">{{ l.score if l.score is not none else '-' }}</td>
+        <td>{{ (l.next_step or '-')|replace('_', ' ') }}</td>
+        <td class="num">{{ duration(l.response_seconds) }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">No leads match these filters.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<nav class="pager" aria-label="Pages">
+  {% if prev_url %}<a class="btn btn-quiet" href="{{ prev_url }}" rel="prev">← Newer</a>{% endif %}
+  <span class="muted">Page {{ page_no }} of {{ pages }}</span>
+  {% if next_url %}<a class="btn btn-quiet" href="{{ next_url }}" rel="next">Older →</a>{% endif %}
+</nav>
+{% endblock %}

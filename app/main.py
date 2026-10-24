@@ -9,24 +9,29 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import httpx
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.ai.base import AIScorer
-from app.api import admin, health, inbound, leads, tasks, webhooks
+from app.api import admin, health, inbound, leads, metrics, tasks, webhooks
 from app.config import Settings, get_settings
 from app.crm.base import CRMAdapter
 from app.db import init_db, make_engine, make_session_factory, schema_is_current
+from app.demo.runtime import DemoRunner, reseed
 from app.followups.sequence import Sequence
 from app.logging import configure_logging
 from app.runtime import build_job_context, build_scoring
 from app.security.rate_limit import TokenBucketLimiter
 from app.services.leads import Intake
+from app.web import dashboard
 from app.web import routes as web_routes
 
 log = logging.getLogger(__name__)
+STATIC_DIR = Path(__file__).parent / "web" / "static"
 
 
 def create_app(
@@ -37,6 +42,7 @@ def create_app(
     sleep: Callable[[float], None] | None = None,
     sequence: Sequence | None = None,
     crm: CRMAdapter | None = None,
+    demo_simulate: bool = True,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, json_output=settings.log_json)
@@ -53,7 +59,16 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        if settings.environment == "test":
+        runner: DemoRunner | None = None
+        if settings.demo_mode:
+            # Fresh fake data on every start, then the worker and simulator in-process.
+            reseed(settings, engine, app.state.session_factory)
+            app.state.schema_ok = True
+            runner = DemoRunner(
+                settings, app.state.session_factory, job_context, simulate=demo_simulate
+            )
+            runner.start()
+        elif settings.environment == "test":
             init_db(engine)  # tests build the schema from the models
             app.state.schema_ok = True
         else:
@@ -64,6 +79,8 @@ def create_app(
         log.info("startup", extra={"version": __version__, "ai_provider": settings.ai_provider})
         yield
         app.state.ready = False
+        if runner is not None:
+            runner.shutdown()
         if owned_client and client is not None:
             client.close()
         engine.dispose()
@@ -96,5 +113,9 @@ def create_app(
     app.include_router(admin.router)
     app.include_router(webhooks.router)
     app.include_router(inbound.router)
+    app.include_router(metrics.router)
+    app.include_router(dashboard.router)
     app.include_router(web_routes.router)
+    app.add_exception_handler(dashboard.LoginRequired, dashboard.login_redirect)
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     return app

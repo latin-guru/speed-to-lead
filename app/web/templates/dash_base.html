@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}Dashboard{% endblock %} · {{ company }}</title>
+  <link rel="stylesheet" href="/static/dashboard.css?v={{ version }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="demo-banner" role="note">
+    <strong>DEMO</strong> — fictional company, fake data, no real messages are sent.
+  </div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"></span>
+      <span>{{ company }}</span>
+      <span class="sub">speed-to-lead</span>
+    </div>
+    {% if user %}
+    <nav aria-label="Main">
+      <a href="/dashboard" {% if page == 'overview' %}aria-current="page"{% endif %}>Overview</a>
+      <a href="/dashboard/leads" {% if page == 'leads' %}aria-current="page"{% endif %}>Leads</a>
+      <a href="/docs">API</a>
+    </nav>
+    <form method="post" action="/logout" class="logout">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <span class="role">{{ 'Demo visitor' if user.role == 'demo' else 'Operator' }}</span>
+      <button type="submit" class="btn btn-quiet">Log out</button>
+    </form>
+    {% endif %}
+  </header>
+  <main id="main">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="foot">
+    <span>v{{ version }} · times in {{ tz }}</span>
+    <span>Senders and CRM are mocks. Nothing leaves this server.</span>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

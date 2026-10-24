@@ -1,0 +1,107 @@
+{% extends "dash_base.html" %}
+{% block title %}{{ lead.name }}{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/dashboard/leads">← Leads</a></p>
+<div class="page-head">
+  <div>
+    <h1>{{ lead.name }} <span class="stage stage-{{ lead.stage }}">{{ lead.stage }}</span></h1>
+    <p class="muted">From {{ lead.source }} · received {{ local(lead.created_at) }} · first response {{ duration(response_seconds) }}</p>
+  </div>
+</div>
+{% if moved %}<p class="notice" role="status">Moved to {{ moved }}.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+<section class="grid detail">
+  <article class="card">
+    <h2>Contact</h2>
+    <dl class="fields">
+      <dt>Phone</dt><dd>{{ phone or '-' }}</dd>
+      <dt>Email</dt><dd>{{ email or '-' }}</dd>
+      <dt>Timezone</dt><dd>{{ lead.timezone or tz + ' (default)' }}</dd>
+      <dt>Follow-ups</dt><dd>{{ lead.sequence_state }}{% if lead.opted_out_at %} · opted out {{ local(lead.opted_out_at) }}{% endif %}</dd>
+      <dt>Message</dt><dd class="message">{{ message or '-' }}</dd>
+    </dl>
+    {% if not revealed %}
+    <p class="small"><a href="?reveal=1">Show contact details</a> <span class="muted">(logged on the timeline)</span></p>
+    {% else %}
+    <p class="small"><a href="?">Hide contact details</a></p>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>AI assessment</h2>
+    {% if lead.score is not none %}
+    <p class="score"><span class="value">{{ lead.score }}</span><span class="muted">/100 · suggests <strong>{{ (lead.next_step or '')|replace('_', ' ') }}</strong> · confidence {{ '%.0f%%' % ((lead.score_confidence or 0) * 100) }}</span></p>
+    <p>{{ lead.score_summary }}</p>
+    <p class="small muted">Scored by {{ lead.scored_by }}{% if lead.score_latency_ms is not none %} in {{ lead.score_latency_ms }} ms{% endif %}. The score is a suggestion; only a person changes the stage.</p>
+    {% if lead.score_flags %}<ul class="tags" aria-label="Flags">{% for f in lead.score_flags %}<li class="tag tag-flag">{{ f|replace('_', ' ') }}</li>{% endfor %}</ul>{% endif %}
+    {% else %}
+    <p class="muted">Not scored yet. The worker picks this up within seconds.</p>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>Change stage</h2>
+    {% if targets %}
+    <form method="post" action="/dashboard/leads/{{ lead.id }}/stage" class="stack">
+      <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+      <label for="stage">Move to</label>
+      <select id="stage" name="stage" required>
+        {% for t in targets %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+      </select>
+      <label for="reason">Reason <span class="muted">(required for lost and for reopening)</span></label>
+      <input id="reason" name="reason" maxlength="200" autocomplete="off">
+      <button type="submit" class="btn">Save</button>
+    </form>
+    {% else %}
+    <p class="muted">{{ lead.stage|capitalize }} is final.</p>
+    {% endif %}
+  </article>
+
+  <article class="card">
+    <h2>CRM sync</h2>
+    <dl class="fields">
+      <dt>Adapter</dt><dd>MOCK HubSpot (in memory)</dd>
+      <dt>Contact id</dt><dd>{{ lead.crm_contact_id or '-' }}</dd>
+      <dt>Deal id</dt><dd>{{ lead.crm_deal_id or '-' }}</dd>
+      <dt>Last synced</dt><dd>{{ local(lead.crm_synced_at) or 'never' }}</dd>
+      <dt>Last job</dt><dd>{% if crm_job %}<span class="job job-{{ crm_job.status }}">{{ crm_job.status }}</span> · attempt {{ crm_job.attempts }}/{{ crm_job.max_attempts }}{% if crm_job.last_error %}<br><span class="small muted">{{ crm_job.last_error }}</span>{% endif %}{% else %}-{% endif %}</dd>
+    </dl>
+  </article>
+
+  <article class="card">
+    <h2>Tasks</h2>
+    {% if tasks %}
+    <ul class="list">
+      {% for t in tasks %}<li><span class="job job-{{ 'queued' if t.status == 'open' else 'done' }}">{{ t.status }}</span> {{ t.reason|replace('_', ' ') }}{% if t.assignee %} · {{ t.assignee }}{% endif %} <span class="muted small">{{ local(t.created_at) }}</span></li>{% endfor %}
+    </ul>
+    {% else %}<p class="muted">No handoff tasks.</p>{% endif %}
+  </article>
+
+  <article class="card wide">
+    <h2>Outbox <span class="muted small">(MOCK senders: recorded, never delivered)</span></h2>
+    {% if outbox %}
+    <div class="table-wrap">
+    <table class="data">
+      <thead><tr><th scope="col">Sent</th><th scope="col">Step</th><th scope="col">Channel</th><th scope="col">To</th><th scope="col">Message</th></tr></thead>
+      <tbody>
+      {% for o in outbox %}
+        <tr><td>{{ local(o.sent_at) }}</td><td>{{ o.step }}</td><td>{{ o.channel }}</td><td>{{ o.to }}</td>
+          <td>{% if o.subject %}<strong>{{ o.subject }}</strong><br>{% endif %}<span class="message">{{ o.body }}</span></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}<p class="muted">Nothing sent yet.</p>{% endif %}
+  </article>
+
+  <article class="card wide">
+    <h2>Timeline</h2>
+    <ol class="timeline">
+      {% for a in timeline %}
+      <li><time>{{ local(a.at) }}</time><span class="what">{{ a.summary }}</span><span class="who muted">{{ a.actor }}</span></li>
+      {% endfor %}
+    </ol>
+  </article>
+</section>
+{% endblock %}
