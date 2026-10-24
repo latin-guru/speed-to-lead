@@ -14,6 +14,7 @@ from app.ai.base import InvalidOutputError, ProviderError, RetryableProviderErro
 from app.ai.guard import build_prompt
 from app.ai.parsing import parse_score_output
 from app.ai.schemas import LeadContext, ScoreResult
+from app.security.outbound import check_url
 
 MAX_OUTPUT_TOKENS = 400
 
@@ -77,7 +78,7 @@ class ClaudeScorer(_HTTPScorer):
         super().__init__(client=client, company=company, timeout=timeout)
         self._api_key = api_key
         self._model = model
-        self._url = base_url.rstrip("/") + "/v1/messages"
+        self._url = check_url(base_url) + "/v1/messages"
 
     def score(self, lead: LeadContext) -> ScoreResult:
         system, user = build_prompt(lead, self._company)
@@ -122,7 +123,7 @@ class GrokScorer(_HTTPScorer):
         super().__init__(client=client, company=company, timeout=timeout)
         self._api_key = api_key
         self._model = model
-        self._url = base_url.rstrip("/") + "/v1/chat/completions"
+        self._url = check_url(base_url) + "/v1/chat/completions"
 
     def score(self, lead: LeadContext) -> ScoreResult:
         system, user = build_prompt(lead, self._company)

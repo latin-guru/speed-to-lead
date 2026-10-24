@@ -9,8 +9,8 @@ from app.ai.base import InvalidOutputError, ProviderError, RetryableProviderErro
 from app.ai.providers import ClaudeScorer, GrokScorer
 from tests.unit.ai_helpers import FAKE_KEY, ctx, model_json
 
-CLAUDE_URL = "https://claude.test/v1/messages"
-GROK_URL = "https://grok.test/v1/chat/completions"
+CLAUDE_URL = "https://api.anthropic.com/v1/messages"
+GROK_URL = "https://api.x.ai/v1/chat/completions"
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def claude(http: httpx.Client) -> ClaudeScorer:
         model="claude-test",
         company="Co",
         timeout=1,
-        base_url="https://claude.test",
+        base_url="https://api.anthropic.com",
     )
 
 
@@ -37,7 +37,7 @@ def grok(http: httpx.Client) -> GrokScorer:
         model="grok-test",
         company="Co",
         timeout=1,
-        base_url="https://grok.test",
+        base_url="https://api.x.ai",
     )
 
 

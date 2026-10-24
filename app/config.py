@@ -146,6 +146,17 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _check_outbound_urls(self) -> Settings:
+        from app.security.outbound import OutboundURLError, check_url
+
+        for name in ("anthropic_base_url", "xai_base_url"):
+            try:
+                setattr(self, name, check_url(getattr(self, name)))
+            except OutboundURLError as exc:
+                raise ValueError(f"{name.upper()}: {exc}") from exc
+        return self
+
+    @model_validator(mode="after")
     def _check_cors(self) -> Settings:
         from urllib.parse import urlsplit
 

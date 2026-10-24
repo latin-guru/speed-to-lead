@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 
 from app.crm.base import CRMError, NotConfigured
+from app.security.outbound import check_url
 
 BASE_URL = "https://api.hubapi.com"
 EXTERNAL_ID_PROPERTY = "external_lead_id"
@@ -59,7 +60,7 @@ class HubSpotAdapter:
     ) -> None:
         self._token = token or None
         self._client = client
-        self._base_url = base_url.rstrip("/")
+        self._base_url = check_url(base_url)
         self._timeout = timeout
 
     # Request shapes (pure; easy to inspect and test) ---------------------------------
