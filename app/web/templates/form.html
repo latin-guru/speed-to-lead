@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Free estimate · {{ company }}{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Get a free roof or solar estimate</h1>
+  <p class="lede">{{ company }} · demo form for the speed-to-lead pipeline.</p>
+  {% if errors %}
+  <ul class="errors" role="alert">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+  {% endif %}
+  <form method="post" action="/" novalidate>
+    <input type="hidden" name="{{ csrf_field }}" value="{{ csrf_token }}">
+    <div class="hp" aria-hidden="true">
+      <label for="{{ honeypot }}">Leave this empty</label>
+      <input id="{{ honeypot }}" name="{{ honeypot }}" type="text" tabindex="-1" autocomplete="off">
+    </div>
+    <label for="name">Full name</label>
+    <input id="name" name="name" autocomplete="name" maxlength="80" required value="{{ values.name }}">
+    <label for="phone">Mobile phone</label>
+    <input id="phone" name="phone" type="tel" autocomplete="tel" placeholder="(202) 555-0143" value="{{ values.phone }}">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" value="{{ values.email }}">
+    <label for="message">What do you need?</label>
+    <textarea id="message" name="message" maxlength="1000">{{ values.message }}</textarea>
+    <button type="submit">Request my estimate</button>
+    <p><small>Phone or email is required. This is a fictional company; no one will call you.</small></p>
+  </form>
+</div>
+{% endblock %}
