@@ -29,7 +29,8 @@ USER_ERRORS = {
     "not_found": "That user does not exist.",
     "invalid_email": "Enter a valid email address.",
     "invalid_role": "Pick admin, rep or viewer.",
-    "weak_password": "Passwords need 12 to 128 characters and must not be the email.",
+    # pragma: allowlist nextline secret
+    "weak_password": "Passwords need 12 to 128 characters, not the email.",
     "duplicate": "A user with that email already exists.",
     "self_change": "You cannot change your own role or deactivate yourself.",
     "last_admin": "Keep at least one active admin.",
@@ -39,7 +40,7 @@ USER_DONE = {
     "created": "User created.",
     "updated": "User updated. Their open sessions were ended.",
     "unlocked": "Account unlocked.",
-    "password": "Password reset. Their open sessions were ended.",
+    "password": "Password reset. Their open sessions were ended.",  # pragma: allowlist secret
     "mfa_reset": "Two-factor reset. They set it up again at their next login.",
 }
 

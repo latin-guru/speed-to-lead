@@ -260,7 +260,10 @@ def _admin_posts(w: World) -> list[tuple[str, dict[str, str]]]:
         ),
         (f"/dashboard/admin/users/{rep}", {"role": "admin", "active": "1"}),
         (f"/dashboard/admin/users/{rep}/unlock", {}),
-        (f"/dashboard/admin/users/{rep}/password", {"password": "a brand new password"}),
+        (
+            f"/dashboard/admin/users/{rep}/password",
+            {"password": "a brand new password"},  # pragma: allowlist secret
+        ),
     ]
 
 

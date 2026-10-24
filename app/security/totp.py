@@ -25,7 +25,7 @@ DIGITS = 6
 PERIOD = 30
 DRIFT_STEPS = 1
 RECOVERY_CODES = 10
-_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"  # no 0/o, 1/l
+_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"  # no 0/o, 1/l  # pragma: allowlist secret
 
 
 def new_secret() -> str:

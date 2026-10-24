@@ -40,7 +40,7 @@ def test_allowed(url: str) -> None:
         "https://127.0.0.1",
         "https://api.anthropic.com.evil.example.net",
         "https://evil.example.net/api.anthropic.com",
-        "https://user:pw@api.anthropic.com",
+        "https://user:pw@api.anthropic.com",  # pragma: allowlist secret
         "https://api.anthropic.com:8443",
         "https://api.anthropic.com/v1?x=1",
         "https://my.salesforce.com",

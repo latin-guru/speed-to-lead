@@ -15,6 +15,7 @@ from tests.conftest import PASSWORD, ROLE_EMAILS, add_user
 from tests.web_helpers import app_of, csrf, login, login_csrf, make_client, set_cookie
 
 ADMIN_EMAIL = ROLE_EMAILS[UserRole.ADMIN]
+WRONG = "wrong password here"  # pragma: allowlist secret
 
 
 @pytest.fixture
@@ -95,7 +96,7 @@ def test_cookie_is_secure_with_host_prefix_off_localhost() -> None:
 @pytest.mark.parametrize(
     ("email", "password"),
     [
-        (ADMIN_EMAIL, "wrong password here"),
+        (ADMIN_EMAIL, WRONG),
         ("nobody@example.com", PASSWORD),
         ("", ""),
         ("x" * 300 + "@example.com", PASSWORD),
@@ -136,9 +137,9 @@ def test_unknown_email_still_spends_a_hash_verification(
 
 def test_lockout_after_repeated_failures_with_backoff(web: TestClient) -> None:
     for _ in range(4):
-        assert login(web, password="wrong password here").status_code == 401
+        assert login(web, password=WRONG).status_code == 401
     assert _user(web).locked_until is None
-    assert login(web, password="wrong password here").status_code == 401  # 5th: locks
+    assert login(web, password=WRONG).status_code == 401  # 5th: locks
     user = _user(web)
     assert user.failed_logins == 5
     assert user.locked_until is not None
@@ -155,14 +156,14 @@ def test_lockout_after_repeated_failures_with_backoff(web: TestClient) -> None:
         assert locked is not None
         locked.locked_until = utcnow() - timedelta(seconds=1)
         s.commit()
-    login(web, password="wrong password here")
+    login(web, password=WRONG)
     second_lock = _user(web).locked_until - utcnow()  # type: ignore[operator]
     assert timedelta(seconds=110) < second_lock <= timedelta(seconds=120)
     assert any(e.summary.get("locked") for e in _events(web, "login"))
 
 
 def test_success_resets_the_failure_count(web: TestClient) -> None:
-    login(web, password="wrong password here")
+    login(web, password=WRONG)
     assert _user(web).failed_logins == 1
     assert login(web).status_code == 303
     user = _user(web)

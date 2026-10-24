@@ -31,7 +31,7 @@ class UserError(ValueError):
 class AuthOutcome(enum.StrEnum):
     OK = "ok"
     UNKNOWN_USER = "unknown_user"
-    BAD_PASSWORD = "bad_password"  # noqa: S105  (an outcome name, not a password)
+    BAD_PASSWORD = "bad_password"  # noqa: S105  # pragma: allowlist secret
     LOCKED = "locked"
     INACTIVE = "inactive"
 

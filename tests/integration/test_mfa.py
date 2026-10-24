@@ -167,7 +167,7 @@ def test_second_step_needs_a_genuine_fresh_pending_cookie(web: TestClient) -> No
     with app_of(web).state.session_factory() as s:
         user = s.get(User, user_id)
         assert user is not None
-        user.password_hash = "changed"
+        user.password_hash = "changed"  # pragma: allowlist secret
         s.commit()
     assert web.get("/login/2fa").status_code == 303
 

@@ -147,7 +147,10 @@ def test_demo_mode_turns_user_changes_off(tmp_path: object) -> None:
                 {"email": "x@example.com", "role": "rep", "password": PASSWORD},
             ),
             (f"/dashboard/admin/users/{rep.id}", {"role": "admin", "active": "1"}),
-            (f"/dashboard/admin/users/{rep.id}/password", {"password": "another long one"}),
+            (
+                f"/dashboard/admin/users/{rep.id}/password",
+                {"password": "another long one"},  # pragma: allowlist secret
+            ),
         ):
             assert "turned off in the public demo" in _follow(c, post(c, url, data))
         assert _user(c, ROLE_EMAILS[UserRole.REP]).role == "rep"

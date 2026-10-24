@@ -34,7 +34,7 @@ week. Fixes land on `main`; there are no maintained release branches.
 | Lead contact details (phone, email) and messages | Personal data. A leak harms the people who asked for an estimate. |
 | The right to contact a lead | Sending to someone who opted out, or too often, is harassment and a compliance problem. |
 | Dashboard accounts and sessions | They gate contact details, stage changes, user management and the kill switch. |
-| Secrets: `SECRET_KEY`, `FIELD_ENCRYPTION_KEY`, `BLIND_INDEX_KEY`, `ADMIN_TOKEN`, webhook secrets, API keys | Each one unlocks a part of the system. |
+| Secrets: `SECRET_KEY`, `FIELD_ENCRYPTION_KEY`, `BLIND_INDEX_KEY`, `ADMIN_TOKEN`, webhook secrets, API keys | Each one unlocks a part of the system. <!-- pragma: allowlist secret --> |
 | Pipeline integrity | Stages and the AI score drive what humans do next. |
 | The audit log | The record of who saw or changed what. |
 
