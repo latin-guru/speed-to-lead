@@ -9,7 +9,7 @@ from pydantic import SecretStr
 from sqlalchemy.orm import Session
 
 from app.crm.base import CRMError, NotConfigured
-from app.crm.hubspot import BASE_URL, HubSpotAdapter
+from app.crm.hubspot import BASE_URL, HubSpotAdapter, property_setup_request
 from app.crm.mapping import DEAL_STAGE, contact_properties, deal_properties, split_name
 from app.crm.mock import MockHubSpotAdapter
 from app.crm.sync import build_crm_adapter, run_crm_sync
@@ -65,18 +65,51 @@ def test_mock_upserts_are_idempotent() -> None:
     cid = crm.upsert_contact({"email": "a@example.com", "firstname": "A"}, external_id=None)
     assert crm.upsert_contact({"email": "a@example.com"}, external_id=None) == cid  # by email
     assert crm.upsert_contact({"firstname": "B"}, external_id=cid) == cid
-    did = crm.upsert_deal({"dealstage": "x"}, contact_id=cid, external_id=None)
-    assert crm.upsert_deal({"dealstage": "y"}, contact_id=cid, external_id=did) == did
+    did = crm.upsert_deal(
+        {"dealstage": "x", "external_lead_id": "L1"}, contact_id=cid, external_id=None
+    )
+    # A retry that lost the saved deal id still finds the deal by external_lead_id.
+    assert (
+        crm.upsert_deal(
+            {"dealstage": "y", "external_lead_id": "L1"}, contact_id=cid, external_id=None
+        )
+        == did
+    )
     assert len(crm.contacts) == 1
     assert len(crm.deals) == 1
     assert crm.deals[did].properties["dealstage"] == "y"
     assert crm.deals[did].associations == {cid}
-    assert [c for c in crm.calls if c[0] == "PUT"] == [
-        ("PUT", f"/crm/v4/objects/deal/{did}/associations/default/contact/{cid}")
-    ]
+    assert ("POST", "/crm/v3/objects/deals/batch/upsert") in crm.calls
     # Mock memory lost (worker restart): updating by a known id recreates it, no new id.
     fresh = MockHubSpotAdapter()
     assert fresh.upsert_contact({"firstname": "A"}, external_id=cid) == cid
+    assert fresh.upsert_deal({"external_lead_id": "L1"}, contact_id=cid, external_id=did) == did
+    with pytest.raises(CRMError, match="external_lead_id"):
+        crm.upsert_deal({"dealstage": "x"}, contact_id=cid, external_id=None)
+
+
+def test_mock_enforces_unique_external_lead_id() -> None:
+    crm = MockHubSpotAdapter()
+    crm.create_deal({"external_lead_id": "L1"})
+    with pytest.raises(CRMError, match="409"):
+        crm.create_deal({"external_lead_id": "L1"})  # a naive create cannot duplicate it
+    assert len(crm.deals) == 1
+
+
+def test_retried_sync_job_does_not_duplicate_the_deal(session: Session) -> None:
+    """The deal upsert succeeds, then the job fails before commit: the saved ids roll back."""
+    lead = _lead()
+    session.add(lead)
+    session.commit()
+    crm = MockHubSpotAdapter()
+    run_crm_sync(session, lead.id, crm, now=T0)
+    session.rollback()  # e.g. the worker crashed before committing
+    assert lead.crm_deal_id is None
+    run_crm_sync(session, lead.id, crm, now=T0)  # the retry
+    session.commit()
+    assert len(crm.deals) == 1
+    assert len(crm.contacts) == 1
+    assert lead.crm_deal_id in crm.deals
 
 
 @pytest.fixture
@@ -123,47 +156,79 @@ def test_hubspot_skeleton_refuses_without_token() -> None:
     with pytest.raises(NotConfigured):
         adapter.upsert_contact({"email": "a@example.com"}, external_id=None)
     with pytest.raises(NotConfigured):
-        HubSpotAdapter("pat-test").upsert_contact({}, external_id=None)  # no client
+        HubSpotAdapter("pat-test").upsert_contact({"email": "a@example.com"}, external_id=None)
 
 
 def test_hubspot_request_shapes() -> None:
-    assert HubSpotAdapter.contact_request({"a": "1"}, None) == (
+    by_email = HubSpotAdapter.contact_request({"email": "a@example.com"}, None)
+    assert by_email == (
         "POST",
-        "/crm/v3/objects/contacts",
-        {"properties": {"a": "1"}},
+        "/crm/v3/objects/contacts/batch/upsert",
+        {
+            "inputs": [
+                {
+                    "idProperty": "email",
+                    "id": "a@example.com",
+                    "properties": {"email": "a@example.com"},
+                }
+            ]
+        },
     )
+    phone_only = HubSpotAdapter.contact_request({"external_lead_id": "L1"}, None)
+    assert phone_only[2]["inputs"][0]["idProperty"] == "external_lead_id"
     assert HubSpotAdapter.contact_request({}, "9")[:2] == ("PATCH", "/crm/v3/objects/contacts/9")
-    assert HubSpotAdapter.deal_request({}, None)[:2] == ("POST", "/crm/v3/objects/deals")
-    assert HubSpotAdapter.deal_request({}, "7")[:2] == ("PATCH", "/crm/v3/objects/deals/7")
+    method, path, body = HubSpotAdapter.deal_request({"external_lead_id": "L1", "dealstage": "x"})
+    assert (method, path) == ("POST", "/crm/v3/objects/deals/batch/upsert")
+    assert body["inputs"][0]["idProperty"] == "external_lead_id"
+    assert body["inputs"][0]["id"] == "L1"
+    with pytest.raises(CRMError, match="required"):
+        HubSpotAdapter.deal_request({"dealstage": "x"})
+    setup = property_setup_request("deals")
+    assert setup[:2] == ("POST", "/crm/v3/properties/deals")
+    assert setup[2]["hasUniqueValue"] is True
+    assert property_setup_request("contacts")[2]["groupName"] == "contactinformation"
 
 
 @respx.mock
 def test_hubspot_wire_format() -> None:
-    contacts = respx.post(f"{BASE_URL}/crm/v3/objects/contacts").respond(201, json={"id": "11"})
-    deals = respx.post(f"{BASE_URL}/crm/v3/objects/deals").respond(201, json={"id": "22"})
+    contacts = respx.post(f"{BASE_URL}/crm/v3/objects/contacts/batch/upsert").respond(
+        200, json={"results": [{"id": "11"}]}
+    )
+    deals = respx.post(f"{BASE_URL}/crm/v3/objects/deals/batch/upsert").respond(
+        200, json={"results": [{"id": "22"}]}
+    )
     assoc = respx.put(f"{BASE_URL}/crm/v4/objects/deal/22/associations/default/contact/11").respond(
         200, json={}
     )
-    respx.patch(f"{BASE_URL}/crm/v3/objects/deals/22").respond(200, content=b"")
+    respx.patch(f"{BASE_URL}/crm/v3/objects/contacts/11").respond(200, content=b"")
+    props = {"dealstage": "x", "external_lead_id": "L1"}
     with httpx.Client() as client:
         adapter = HubSpotAdapter("pat-test", client=client)
         assert adapter.upsert_contact({"email": "a@example.com"}, external_id=None) == "11"
-        assert adapter.upsert_deal({"dealstage": "x"}, contact_id="11", external_id=None) == "22"
-        assert adapter.upsert_deal({"dealstage": "y"}, contact_id="11", external_id="22") == "22"
+        assert adapter.upsert_contact({"firstname": "A"}, external_id="11") == "11"
+        assert adapter.upsert_deal(props, contact_id="11", external_id=None) == "22"
+        assert adapter.upsert_deal(props, contact_id="11", external_id="22") == "22"
     req = contacts.calls.last.request
     assert req.headers["authorization"] == "Bearer pat-test"
-    assert json.loads(req.content) == {"properties": {"email": "a@example.com"}}
-    assert deals.call_count == 1
-    assert assoc.call_count == 1  # association only when the deal is created
+    assert json.loads(req.content)["inputs"][0]["idProperty"] == "email"
+    assert deals.call_count == 2  # same upsert both times: HubSpot keeps one deal
+    assert json.loads(deals.calls.last.request.content)["inputs"][0]["id"] == "L1"
+    assert assoc.call_count == 2  # the v4 default association PUT is idempotent
 
 
 @respx.mock
 def test_hubspot_errors_become_crm_errors() -> None:
-    respx.post(f"{BASE_URL}/crm/v3/objects/contacts").respond(429)
-    respx.post(f"{BASE_URL}/crm/v3/objects/deals").mock(side_effect=httpx.ConnectError("x"))
+    respx.post(f"{BASE_URL}/crm/v3/objects/contacts/batch/upsert").respond(429)
+    respx.post(f"{BASE_URL}/crm/v3/objects/deals/batch/upsert").mock(
+        side_effect=httpx.ConnectError("x")
+    )
+    respx.patch(f"{BASE_URL}/crm/v3/objects/contacts/5").respond(200, json={})
     with httpx.Client() as client:
         adapter = HubSpotAdapter("pat-test", client=client)
         with pytest.raises(CRMError, match="429"):
-            adapter.upsert_contact({}, external_id=None)
+            adapter.upsert_contact({"email": "a@example.com"}, external_id=None)
         with pytest.raises(CRMError, match="transport"):
-            adapter.upsert_deal({}, contact_id="1", external_id=None)
+            adapter.upsert_deal({"external_lead_id": "L1"}, contact_id="1", external_id=None)
+        assert adapter.upsert_contact({}, external_id="5") == "5"  # falls back to the known id
+        with pytest.raises(CRMError, match="no record id"):
+            HubSpotAdapter._id({}, None)
