@@ -10,7 +10,8 @@
     <ul class="demo-accounts">
       {% for email, role in demo_accounts %}<li><code class="pick">{{ email }}</code> <span class="muted">{{ role }}</span></li>{% endfor %}
     </ul>
-    <p class="small">The demo admin has two-factor on: the next step shows its current code.</p>
+    {% if demo_accounts | selectattr(1, "equalto", "admin") | list %}<p class="small">The demo admin has two-factor on: the next step shows its current code.</p>{% endif %}
+    {% if demo_accounts | rejectattr(1, "equalto", "viewer") | list | length == 0 %}<p class="small">This public demo offers a read-only account: you can browse everything, contact details stay masked, and nothing can be changed.</p>{% endif %}
   </div>
   {% endif %}
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}

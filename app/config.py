@@ -121,6 +121,9 @@ class Settings(BaseSettings):
     # on the login page. For a public deployment, list only "viewer" in DEMO_ROLES.
     demo_password: SecretStr | None = None
     demo_roles: str = ",".join(DEMO_ROLES)
+    # A demo uses the MOCK scorer unless this is set: a public demo should never spend a
+    # real API key on whatever visitors type into the form.
+    demo_allow_real_ai: bool = False
     demo_seed: int = 4242
     demo_leads: int = Field(default=150, ge=0, le=5000)
     demo_interval_min_seconds: float = Field(default=5.0, gt=0)
@@ -199,6 +202,12 @@ class Settings(BaseSettings):
             return self
         if not self.database_url.startswith("sqlite"):
             raise ValueError("DEMO_MODE resets the database, so it only runs on SQLite")
+        if self.ai_provider != "mock" and not self.demo_allow_real_ai:
+            raise ValueError(
+                "DEMO_MODE uses AI_PROVIDER=mock; set DEMO_ALLOW_REAL_AI=true to use a real one"
+            )
+        if self.crm_provider not in ("none", "mock") and not self.crm_mock:
+            raise ValueError("DEMO_MODE only syncs to MOCK CRMs (set CRM_MOCK=true)")
         if self.demo_interval_min_seconds > self.demo_interval_max_seconds:
             raise ValueError("DEMO_INTERVAL_MIN_SECONDS must be <= the max")
         # The demo talks to itself through the real, authenticated endpoints. Secrets that
