@@ -233,4 +233,4 @@ These were open after session 3 and are now implemented:
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+All rights reserved. This is a public showcase: you may read the code and run the demo locally to evaluate it. See [LICENSE](LICENSE). Vendored Chart.js keeps its own MIT license (`app/web/static/vendor/`).

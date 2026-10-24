@@ -3,7 +3,8 @@ name = "speed-to-lead"
 version = "0.4.0"
 description = "Lead capture, AI scoring, job queue, guarded follow-ups and an operator dashboard for a fictional home-services company."
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { text = "Proprietary - see LICENSE" }
+classifiers = ["License :: Other/Proprietary License", "Private :: Do Not Upload"]
 # Pinned dependencies live in requirements.txt / requirements-dev.txt.
 
 [tool.ruff]
