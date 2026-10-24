@@ -1,4 +1,12 @@
-"""ORM models: Lead, Activity (timeline) and WebhookEvent (idempotency ledger)."""
+"""ORM models.
+
+- ``Lead``, ``Activity`` (timeline), ``WebhookEvent`` (idempotency ledger)  - session 1
+- ``Job`` (DB-backed queue), ``OutboxMessage`` (mock sends), ``Task`` (human handoff),
+  ``SystemFlag`` (kill switch)                                                - session 3
+
+The schema is owned by Alembic; keep ``migrations/versions`` in step with this file
+(``tests/integration/test_migrations.py`` fails if they drift).
+"""
 
 from __future__ import annotations
 
@@ -7,10 +15,19 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db import Base
+from app.db import Base, UTCDateTime
 
 
 def utcnow() -> datetime:
@@ -19,10 +36,16 @@ def utcnow() -> datetime:
 
 class LeadStage(enum.StrEnum):
     NEW = "new"
-    CONTACTED = "contacted"
     QUALIFIED = "qualified"
+    CONTACTED = "contacted"
     WON = "won"
     LOST = "lost"
+
+
+class SequenceState(enum.StrEnum):
+    ACTIVE = "active"  # automated follow-ups may send
+    PAUSED = "paused"  # handed to a human; pending sends cancelled
+    STOPPED = "stopped"  # opted out, closed, or contacted by a human
 
 
 class Lead(Base):
@@ -34,8 +57,10 @@ class Lead(Base):
     phone: Mapped[str | None] = mapped_column(String(16), index=True)  # E.164
     source: Mapped[str] = mapped_column(String(32), index=True)
     message: Mapped[str | None] = mapped_column(Text)
+    timezone: Mapped[str | None] = mapped_column(String(64))  # IANA name; None = business tz
     # Stage is only changed by explicit business actions, never by the AI scorer.
     stage: Mapped[str] = mapped_column(String(16), default=LeadStage.NEW.value, index=True)
+    lost_reason: Mapped[str | None] = mapped_column(String(200))
 
     # Scoring (all nullable until scored). next_step is a *suggestion* only.
     score: Mapped[int | None] = mapped_column(Integer)
@@ -46,15 +71,22 @@ class Lead(Base):
     scored_by: Mapped[str | None] = mapped_column(String(16))  # mock | claude | grok | fallback
     score_provider: Mapped[str | None] = mapped_column(String(16))  # provider attempted
     score_latency_ms: Mapped[int | None] = mapped_column(Integer)
-    scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    scored_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, index=True
-    )
-    first_response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Follow-up sequence
+    sequence_state: Mapped[str] = mapped_column(String(16), default=SequenceState.ACTIVE.value)
+    opted_out_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+    # CRM sync bookkeeping (ids in the external CRM, set by the sync job)
+    crm_contact_id: Mapped[str | None] = mapped_column(String(64))
+    crm_deal_id: Mapped[str | None] = mapped_column(String(64))
+    crm_synced_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+    first_response_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
 
     activities: Mapped[list[Activity]] = relationship(
-        back_populates="lead", order_by="Activity.created_at", cascade="all, delete-orphan"
+        back_populates="lead", order_by="Activity.id", cascade="all, delete-orphan"
     )
 
 
@@ -68,7 +100,7 @@ class Activity(Base):
     kind: Mapped[str] = mapped_column(String(32), index=True)
     detail: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     actor: Mapped[str] = mapped_column(String(32))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
     lead: Mapped[Lead] = relationship(back_populates="activities")
 
@@ -80,7 +112,95 @@ class WebhookEvent(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     provider: Mapped[str] = mapped_column(String(16))
     event_id: Mapped[str] = mapped_column(String(64))
-    status: Mapped[str] = mapped_column(String(16))  # processed | rejected | needs_fetch
+    # processed | rejected | needs_fetch | unmatched
+    status: Mapped[str] = mapped_column(String(16))
     lead_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     reason: Mapped[str | None] = mapped_column(String(200))
-    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    received_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class JobStatus(enum.StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    DEAD = "dead"  # dead-letter: out of attempts or a permanent error
+    CANCELLED = "cancelled"  # e.g. a follow-up send cancelled by STOP or a handoff
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+    __table_args__ = (Index("ix_jobs_claim", "status", "run_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(32), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    run_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5)
+    status: Mapped[str] = mapped_column(String(16), default=JobStatus.QUEUED.value)
+    locked_by: Mapped[str | None] = mapped_column(String(64))
+    locked_until: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    idempotency_key: Mapped[str] = mapped_column(String(128), unique=True)
+    last_error: Mapped[str | None] = mapped_column(String(500))
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+
+
+class OutboxMessage(Base):
+    """A message a MOCK sender "sent". Nothing here ever leaves the process.
+
+    ``idempotency_key`` (``<lead_id>:<step>``) is UNIQUE, which is what makes a send
+    at-most-once even if the job that sends it runs twice.
+    """
+
+    __tablename__ = "outbox_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    step: Mapped[str] = mapped_column(String(32))
+    channel: Mapped[str] = mapped_column(String(8))  # sms | email
+    to_address: Mapped[str] = mapped_column(String(254))
+    subject: Mapped[str | None] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    sender: Mapped[str] = mapped_column(String(32))  # e.g. "MOCK-sms"
+    idempotency_key: Mapped[str] = mapped_column(String(128), unique=True)
+    transactional: Mapped[bool] = mapped_column(default=False)
+    sent_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, index=True)
+
+
+class TaskStatus(enum.StrEnum):
+    OPEN = "open"
+    DONE = "done"
+
+
+class Task(Base):
+    """Work for a human: created when automation hands a lead off."""
+
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), index=True
+    )
+    reason: Mapped[str] = mapped_column(String(32))  # lead_replied | ai_human_review | ...
+    detail: Mapped[str | None] = mapped_column(String(300))
+    assignee: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(8), default=TaskStatus.OPEN.value, index=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
+    done_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+
+
+class SystemFlag(Base):
+    """Small key/value switches an operator can flip at runtime (e.g. ``sends_paused``)."""
+
+    __tablename__ = "system_flags"
+
+    key: Mapped[str] = mapped_column(String(32), primary_key=True)
+    value: Mapped[str] = mapped_column(String(64))
+    updated_by: Mapped[str] = mapped_column(String(48))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)

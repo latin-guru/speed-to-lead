@@ -51,6 +51,47 @@ class Settings(BaseSettings):
     xai_model: str = "grok-4"
     xai_base_url: str = "https://api.x.ai"
 
+    # Operator API (/admin/*, pipeline moves, tasks, lead detail). Unset -> those endpoints
+    # fail closed with 503.
+    admin_token: SecretStr | None = None
+    # Shared secret for the (mock) inbound SMS reply webhook. Unset -> 503.
+    inbound_webhook_secret: SecretStr | None = None
+
+    # Job queue / worker
+    job_max_attempts: int = Field(default=5, ge=1, le=20)
+    job_lease_seconds: float = Field(default=60.0, gt=0)
+    job_backoff_base_seconds: float = Field(default=5.0, gt=0)
+    job_backoff_cap_seconds: float = Field(default=900.0, gt=0)
+    worker_poll_seconds: float = Field(default=1.0, gt=0)
+
+    # Follow-up sequence and send guards
+    followup_sequence_path: str | None = None  # YAML; None -> the bundled default sequence
+    business_timezone: str = "America/Chicago"
+    quiet_hours_enabled: bool = True
+    quiet_hours_start: int = Field(default=21, ge=0, le=23)  # no sends from 21:00 ...
+    quiet_hours_end: int = Field(default=8, ge=0, le=23)  # ... until 08:00 lead-local time
+    max_touches_per_week: int = Field(default=4, ge=1)
+    min_touch_gap_hours: float = Field(default=12.0, ge=0)
+    callback_minutes: int = Field(default=15, ge=1, le=240)
+    sends_paused: bool = False  # env kill switch; the DB flag can also pause
+    kill_switch_recheck_seconds: float = Field(default=300.0, gt=0)
+
+    # CRM sync: mock (default, in-process, no network) | hubspot (skeleton) | none
+    crm_provider: Literal["mock", "hubspot", "none"] = "mock"
+    hubspot_token: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def _check_timezone(self) -> Settings:
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(self.business_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"unknown BUSINESS_TIMEZONE: {self.business_timezone!r}") from exc
+        if self.quiet_hours_start == self.quiet_hours_end:
+            raise ValueError("QUIET_HOURS_START and QUIET_HOURS_END must differ")
+        return self
+
     @model_validator(mode="after")
     def _require_secret_in_prod(self) -> Settings:
         if self.secret_key is None or not self.secret_key.get_secret_value():
