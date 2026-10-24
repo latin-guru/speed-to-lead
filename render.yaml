@@ -35,9 +35,9 @@ services:
         value: hubspot
       - key: CRM_MOCK
         value: "true"
-      # Behind Render's proxy every request comes from the proxy's address. With this on, the
-      # app keys rate limits by the right-most X-Forwarded-For hop (the one the proxy adds),
-      # never by hops a client could send itself.
+      # Behind Render's proxy every request comes from the proxy's address over plain HTTP.
+      # With this on, rate limits key on the right-most X-Forwarded-For hop (the one the
+      # proxy adds, never one a client sent) and HSTS follows X-Forwarded-Proto.
       - key: TRUST_FORWARDED_FOR
         value: "true"
       - key: LOG_LEVEL

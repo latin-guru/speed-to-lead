@@ -313,7 +313,15 @@ in this repository, so nothing here claims they are.
   token and does not refresh it; none of the skeletons have been run against a live
   account.
 - **The demo accounts are public on purpose** and reseeded on every start. In demo mode
-  user changes are turned off; for a public deployment, set `DEMO_ROLES=viewer`.
+  user changes are turned off; for a public deployment, set `DEMO_ROLES=viewer` (the
+  `render.yaml` Blueprint does). Demo mode refuses to start on a non-SQLite database, with
+  a real AI provider unless `DEMO_ALLOW_REAL_AI=true`, and with a non-mock CRM
+  (`app/config.py`, `tests/integration/test_demo_hosting.py`). The public lead form stays
+  open in the hosted demo, so visitors can add fake leads; senders are mocks either way.
+- **Behind a TLS-terminating proxy** (such as Render's) the app only learns the client
+  address and HTTPS from the proxy's headers. Set `TRUST_FORWARDED_FOR=true` there (the
+  Blueprint does): rate limits then key on the right-most `X-Forwarded-For` hop and HSTS
+  follows `X-Forwarded-Proto`. Leave it off anywhere clients can reach the app directly.
 
 ## Roadmap
 
