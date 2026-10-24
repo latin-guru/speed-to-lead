@@ -184,7 +184,7 @@ Not built yet:
 
 ## Contact
 
-[LinkedIn](https://www.linkedin.com/in/kevin-gaviria)
+Built by **Kevin Gaviria**. [Connect on LinkedIn](https://www.linkedin.com/in/kevin-gaviria)
 
 ## License
 
