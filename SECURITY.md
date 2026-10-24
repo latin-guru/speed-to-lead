@@ -2,7 +2,7 @@
 
 speed-to-lead is a portfolio project: a lead-response pipeline for a fictional company
 (Copperline Roofing & Solar). It ships with mock senders and mock CRMs, and all sample
-data is fake. It is still built as if it held real people's contact details, and this
+data is fake. The one real sender is opt-in Interview mode's email (see below). It is still built as if it held real people's contact details, and this
 document explains how.
 
 - [Reporting a vulnerability](#reporting-a-vulnerability)
@@ -57,6 +57,7 @@ week. Fixes land on `main`; there are no maintained release branches.
 
 | Entry point | Who | Guarded by |
 | --- | --- | --- |
+| `GET/POST /try/<token>`, `GET /try/<token>/status` | holder of an invite link | unguessable single-use expiring token (hash stored), CSRF, honeypot, IP rate limit, consent box, visitor cookie for the status |
 | `GET/POST /` (lead form) | anyone | CSRF token, honeypot, IP rate limit, per-phone daily cap, strict validation |
 | `POST /api/leads` | anyone | IP rate limit, per-phone daily cap, strict validation |
 | `GET/POST /webhooks/meta` | Meta | verify token, HMAC-SHA256 signature, idempotency ledger, rate limit |
@@ -68,6 +69,7 @@ week. Fixes land on `main`; there are no maintained release branches.
 | `/docs`, `/openapi.json` | anyone (can be turned off) | read-only description of the API |
 | `python -m app.cli`, `alembic` | operator | shell access |
 | Outbound: AI provider, CRM | the worker | fixed, allowlisted hosts over HTTPS |
+| Outbound: SMTP server (Interview mode, opt-in) | the worker | host from configuration only, STARTTLS required (except loopback), caps |
 
 ### Trust boundaries
 
@@ -228,7 +230,8 @@ flowchart LR
 
 `audit_events` records logins (success and failure), two-factor events, logouts, contact reveals, stage
 changes, assignments, task closes, dead-letter retries, the kill switch, user changes,
-retention runs, and refused attempts on other people's leads. Each event has the actor,
+retention runs, interview invites (created, used, revoked), and refused attempts on other
+people's leads. Each event has the actor,
 role, action, target, outcome, a scrubbed summary (masked and length-capped, never contact
 details), a keyed hash of the client IP and the user agent. Events are written in the same
 transaction as the action. Admins can filter them at `/dashboard/admin/audit`.
@@ -247,13 +250,54 @@ transaction as the action. Admins can filter them at `/dashboard/admin/audit`.
   forces human review, and the scorer can never change a stage. `app/ai/`
 - **SSRF:** every outbound URL comes from configuration, never from request data, and must
   be HTTPS to an allowlisted host (`api.anthropic.com`, `api.x.ai`, `api.hubapi.com`,
-  `services.leadconnectorhq.com`, or a `*.my.salesforce.com` My Domain) with no
+  `services.leadconnectorhq.com`, the two Google hosts of the Gmail API skeleton, or a
+  `*.my.salesforce.com` My Domain) with no
   credentials, path or custom port. It is checked when settings load and again when each
   client is built. Tests show that lead content cannot change the host and that no API
   input takes a URL. `app/security/outbound.py`
 - **Sends are guarded:** opt-outs (STOP) apply to the number across leads, a sending
   window, per-person frequency caps and a kill switch run before every send, and each step
-  is sent at most once. The senders in this repository are mocks. `app/followups/`
+  is sent at most once. The senders are mocks, except Interview mode's email (above).
+  `app/followups/`
+
+### Interview mode (real email)
+
+Interview mode lets a person watching a live demo receive the real acknowledgment email.
+It is the only path to a real sender, so it is fenced in on every side
+(`app/interview/`, `app/web/interview.py`, `app/config.py`):
+
+- **Off unless turned on twice.** `EMAIL_BACKEND` defaults to `mock`; a real backend is
+  refused at startup unless `INTERVIEW_EMAIL_ENABLED=true` is set explicitly and
+  `EMAIL_FROM` is a valid address. SMTP needs STARTTLS for any non-loopback host. In demo
+  mode, real email is refused while the public admin or rep demo accounts exist
+  (`DEMO_ROLES=viewer` only); invites there come from a private owner account whose
+  password and TOTP secret live in the host's secret store (`DEMO_OWNER_*`).
+- **Invite-only.** Only a logged-in admin or rep can create a link (two-factor rules as
+  usual, CSRF, audited). A link is 32 random bytes; only its SHA-256 is stored, it is
+  shown once, expires after `INVITE_TTL_MINUTES` (120), can be revoked, and is **used up
+  by one successful submission** (a conditional update, so two at once cannot both win).
+- **Consent.** The form needs an unchecked-by-default box: "I agree to receive one demo
+  email at this address. This is a one-time demo; no marketing." It also has a CSRF
+  token, a honeypot (which does not use up the link) and a per-IP rate limit
+  (`INTERVIEW_FORM_PER_IP_PER_HOUR`).
+- **One email, nothing else.** The router (`app/interview/routing.py`) picks the real
+  sender only for an email, only for a lead that an invite row points at, and only for
+  the instant acknowledgment. The public form, `POST /api/leads` (which refuses the
+  reserved `interview_demo` source), webhooks and later reminders always use the mock.
+  **SMS is always the mock.**
+- **Caps.** At most `INTERVIEW_EMAIL_MAX_PER_HOUR` (10) and `INTERVIEW_EMAIL_MAX_PER_DAY`
+  (30) real emails in rolling windows, one per link and one per recipient per day
+  (matched through the blind index). Over a cap the mock sender records the email and the
+  visitor's panel says so.
+- **Content.** Plain text plus simple HTML, no images or tracking pixels, no links except
+  the project repository, a footer stating it is a one-time demo and that no further
+  emails will be sent. The visitor's name is HTML-escaped; the subject is fixed.
+- **Privacy.** The address is encrypted at rest (lead and outbox, like every contact
+  field), masked in logs and on the panel, and never written to the audit log. SMTP and
+  Gmail API errors are re-raised without the server's text (an SMTP refusal quotes the
+  address), so job errors and tracebacks cannot leak it. The panel's status endpoint needs
+  the visitor's own random cookie (only its hash is stored).
+- **Kill switch.** The global send pause holds this email like every other message.
 
 ### Supply chain and CI
 
@@ -318,6 +362,14 @@ in this repository, so nothing here claims they are.
   a real AI provider unless `DEMO_ALLOW_REAL_AI=true`, and with a non-mock CRM
   (`app/config.py`, `tests/integration/test_demo_hosting.py`). The public lead form stays
   open in the hosted demo, so visitors can add fake leads; senders are mocks either way.
+- **Interview email is at-least-once at the edges.** The outbox row claims the send
+  before delivery and is rolled back if delivery fails, so a failed send is retried.
+  If the process dies after the SMTP server accepted the email but before the commit, a
+  retry can send it a second time. The caps still bound the total.
+- **Hosted-demo invites do not survive a restart.** The demo database is recreated on
+  every start (and a free instance restarts after sleeping), so create a link shortly
+  before using it. The caps are counted from the same database and reset with it.
+- **The Gmail API backend is a skeleton**, tested against mocked HTTP only.
 - **Behind a TLS-terminating proxy** (such as Render's) the app only learns the client
   address and HTTPS from the proxy's headers. Set `TRUST_FORWARDED_FOR=true` there (the
   Blueprint does): rate limits then key on the right-most `X-Forwarded-For` hop and HSTS

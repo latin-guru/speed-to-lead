@@ -9,7 +9,7 @@
 
 This is a public showcase version of a lead pipeline I run in production. Business rules, prompts, and client data are kept private.
 
-The demo business is **Copperline Roofing & Solar (fictional)**. All sample data is fake (`555-01xx` phone numbers, `example.com` emails), and **nothing is ever really sent**: the SMS and email senders and the CRM adapters used by default are mocks.
+The demo business is **Copperline Roofing & Solar (fictional)**. All sample data is fake (`555-01xx` phone numbers, `example.com` emails), and by default **nothing is ever really sent**: the SMS and email senders and the CRM adapters are mocks. The one exception is the opt-in [Interview mode](#interview-mode), where a single-use invite link can send one real email to an address its visitor typed in. Texts are never sent.
 
 ![The dashboard updating as simulated leads arrive, then a lead's detail page](docs/demo.gif)
 
@@ -17,6 +17,7 @@ The demo business is **Copperline Roofing & Solar (fictional)**. All sample data
 
 - [The business problem](#the-business-problem)
 - [Live demo](#live-demo)
+- [Interview mode](#interview-mode)
 - [Architecture](#architecture)
 - [What it does (and the tests that prove it)](#what-it-does)
 - [Tech stack](#tech-stack)
@@ -42,10 +43,11 @@ speed-to-lead answers within seconds, scores the lead, follows up on a polite sc
 
 ## Live demo
 
-**[speed-to-lead-demo-n34j.onrender.com](https://speed-to-lead-demo-n34j.onrender.com)**
+**[Open the live demo: speed-to-lead-demo-n34j.onrender.com/login](https://speed-to-lead-demo-n34j.onrender.com/login)**
 
 - Log in as **`viewer@example.com`** with the password **`copperline-demo`** (shown on the login page). The public demo offers only this read-only account: you can browse everything, contact details stay masked, and nothing can be changed.
 - A new simulated lead arrives every few seconds through the real endpoints, and the dashboard refreshes on its own.
+- The [public lead form](https://speed-to-lead-demo-n34j.onrender.com) is there too, if you want to add a lead yourself (fake data is fine; nothing is sent).
 - It runs on a free instance that sleeps when idle, so the first visit can take **about 30-60 seconds** to wake up. Each restart reseeds fresh fake data.
 - How it's hosted: one free Render web service defined in [`render.yaml`](render.yaml). The app, the job worker and the lead simulator run in that one process on a local SQLite file, so there's no paid worker, no expiring database and no cron. Demo mode refuses to start with a real AI provider, a real CRM or a non-SQLite database, and every sender is a mock.
 
@@ -55,6 +57,23 @@ speed-to-lead answers within seconds, scores the lead, follows up on a polite sc
 
 ![Dashboard overview: KPIs, funnel, sources, AI scores and response times](docs/screenshots/dashboard.png)
 
+## Interview mode
+
+For showing the pipeline to someone live: instead of only watching simulated leads, they receive the real reply in their own inbox.
+
+1. Logged in as an admin or rep (with two-factor as usual), open **Interview mode** in the dashboard and create a link, optionally labeled ("Acme interview"). The link works **once** and expires after **2 hours** (`INVITE_TTL_MINUTES`). Only a hash of it is stored, so it is shown once; links can be revoked, and creating, using and revoking them is audited.
+2. The visitor opens `/try/<token>`, enters a first name and their email, and ticks an unchecked consent box ("I agree to receive one demo email at this address..."). The form has CSRF protection, a honeypot and a per-IP rate limit.
+3. The lead goes through the **real pipeline** (source `interview_demo`): scored, synced to the mock CRM, and answered. The page turns into a live panel (polling every 2 seconds) showing each step as it happens, then links to the dashboard.
+
+What is real and what is not:
+
+- **Only that lead's instant email acknowledgment** can use the real sender, and only when `EMAIL_BACKEND` is `smtp` (or the `gmail_api` skeleton) **and** `INTERVIEW_EMAIL_ENABLED=true`. The public form, the API, webhooks and later reminders always use the mock. **SMS is always the mock.**
+- Caps: at most 10 real emails per hour and 30 per day (configurable), one per link and one per address per day. Over a cap the mock sender records the email and the panel says "demo limit reached".
+- The email is plain text plus simple HTML, with no tracking pixels and no links except this repository. Its footer says it is a one-time demo and that no further emails will be sent. The address is encrypted at rest and masked in logs and on the panel.
+- It is **off by default**, including in [`render.yaml`](render.yaml). Turning it on is a matter of setting `EMAIL_BACKEND`, `INTERVIEW_EMAIL_ENABLED`, `EMAIL_FROM` and the `SMTP_*` values in the host's dashboard, never in the repository. On the hosted demo, invites are created from a private owner account (`DEMO_OWNER_*`); demo mode refuses real email while the public admin or rep demo accounts exist.
+
+The abuse-prevention details are in [SECURITY.md](SECURITY.md#interview-mode-real-email).
+
 ## Architecture
 
 ```mermaid
@@ -62,6 +81,7 @@ flowchart LR
     form["Web form<br/>(CSRF + honeypot)"] --> api
     meta["Lead-ads webhook<br/>(HMAC-signed, idempotent)"] --> api
     sms_in["Inbound SMS replies<br/>(signed, mock provider)"] --> api
+    invite["Interview link<br/>(single-use, consent)"] --> api
 
     subgraph core["FastAPI app"]
         api["API<br/>validation, rate limits"] -->|"lead + its jobs<br/>in one transaction"| db[("SQL database<br/>SQLite / Postgres")]
@@ -76,6 +96,7 @@ flowchart LR
     worker --> engine["Follow-up engine"]
     engine --> guards{"Guards<br/>opt-out, stage, window,<br/>caps, kill switch"}
     guards -->|"allowed"| outbox["MOCK SMS / email<br/>outbox table"]
+    guards -->|"invite lead's one email,<br/>under caps"| realmail["Real email<br/>(SMTP, opt-in)"]
     worker --> crm["CRM sync"]
     crm --> crms["MOCK HubSpot / GoHighLevel / Salesforce<br/>(+ real-API skeletons)"]
 ```
@@ -120,6 +141,9 @@ Every row links to the tests that prove it. [`tests/test_readme_claims.py`](test
 | Health and readiness checks | [`test_health.py`](tests/integration/test_health.py) |
 | Demo mode: deterministic fake history and a lead simulator through the real endpoints | [`test_demo.py`](tests/integration/test_demo.py) |
 | Public demo: viewer-only login, viewer cannot change anything, unsafe config refused, Render Blueprint checked | [`test_demo_hosting.py`](tests/integration/test_demo_hosting.py) |
+| Interview mode: single-use, expiring, hash-only invite links (create, revoke, audit); consent, honeypot, CSRF and rate limit on `/try`; live panel | [`test_interview.py`](tests/integration/test_interview.py) |
+| Real email only for an invite's one email and only when enabled (public form and API stay mock, SMS always mock); hourly, daily, per-recipient and per-link caps; address masked in logs and encrypted at rest | [`test_interview.py`](tests/integration/test_interview.py) |
+| Demo email content (footer, no tracking), SMTP backend against a local fake server, Gmail API skeleton, settings that refuse unsafe email config | [`test_interview_email.py`](tests/unit/test_interview_email.py), [`test_demo_hosting.py`](tests/integration/test_demo_hosting.py) |
 
 ## Tech stack
 
@@ -141,6 +165,7 @@ Built as if it held real people's contact details. The full threat model, with t
 - Phone and email encrypted at rest with a blind index; masked on screen and in logs; every reveal is audited.
 - Signed, idempotent webhooks; outbound calls only to allowlisted hosts; prompt-injection guards on AI input.
 - Demo mode refuses unsafe configuration: a non-SQLite database, a real AI provider without an explicit opt-in, or a non-mock CRM.
+- Real email is invite-only and opt-in twice (`EMAIL_BACKEND` and `INTERVIEW_EMAIL_ENABLED`), consented, single-use and capped; SMS is never real.
 
 ## Run the demo locally
 
@@ -174,7 +199,7 @@ The Postgres-specific queue test (`SKIP LOCKED`) runs when `TEST_POSTGRES_URL` p
 
 Not built yet:
 
-- Real SMS and email senders (the repository only has mocks).
+- A real SMS sender (texts are mock-only; the only real sender is Interview mode's email).
 - Fetching full lead details from the ad platform's API (webhooks that carry only ids are recorded for a later fetch).
 - A shared rate-limit store (Redis or the database) for running several web processes.
 - Running the Postgres queue tests in CI.

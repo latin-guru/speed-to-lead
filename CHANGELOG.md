@@ -2,6 +2,12 @@
 
 Highlights per version. The demo company and all sample data are fictional.
 
+## 1.1.0
+
+- Interview mode: an admin or rep creates a single-use, two-hour link (`/try/<token>`, stored only as a hash, revocable, audited). The visitor enters their own email, consents to one demo email, and watches their lead get created, scored, answered and synced on a live panel.
+- A real email sender (SMTP with STARTTLS; a Gmail API skeleton), used only for an invite's one acknowledgment and only with `EMAIL_BACKEND` set and `INTERVIEW_EMAIL_ENABLED=true`. Capped per hour, per day, per recipient and per link; over a cap the mock sender is used. SMS stays mock.
+- Demo mode: an optional private owner account (`DEMO_OWNER_*`) for creating invites on the hosted demo; real email in demo mode requires `DEMO_ROLES=viewer`.
+
 ## 1.0.0
 
 - Hosted demo: a Render Blueprint (`render.yaml`) runs the whole demo as one free web service, offering only the read-only viewer login (`DEMO_ROLES=viewer`).
