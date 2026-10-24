@@ -1,0 +1,3 @@
+# False positives: ZoneInfo .key comparisons with time zone names in a test, not credentials.
+5b7737f746de4ed007c0822f7db93786eacc01e1:tests/unit/test_guards.py:generic-api-key:62
+5b7737f746de4ed007c0822f7db93786eacc01e1:tests/unit/test_guards.py:generic-api-key:63
