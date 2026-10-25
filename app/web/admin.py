@@ -115,7 +115,7 @@ def _settings_rows(settings: Settings, crm_name: str) -> list[tuple[str, str]]:
 
     return [
         ("Environment", settings.environment),
-        ("AI provider", settings.ai_provider),
+        ("Scoring adapter", settings.ai_provider),
         ("CRM adapter", crm_name),
         ("Business timezone", settings.business_timezone),
         ("Sending window", settings.send_windows if settings.quiet_hours_enabled else "off"),

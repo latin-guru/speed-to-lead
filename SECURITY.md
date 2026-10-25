@@ -35,7 +35,7 @@ week. Fixes land on `main`; there are no maintained release branches.
 | The right to contact a lead | Sending to someone who opted out, or too often, is harassment and a compliance problem. |
 | Dashboard accounts and sessions | They gate contact details, stage changes, user management and the kill switch. |
 | Secrets: `SECRET_KEY`, `FIELD_ENCRYPTION_KEY`, `BLIND_INDEX_KEY`, `ADMIN_TOKEN`, webhook secrets, API keys | Each one unlocks a part of the system. <!-- pragma: allowlist secret --> |
-| Pipeline integrity | Stages and the AI score drive what humans do next. |
+| Pipeline integrity | Stages and the lead score drive what humans do next. |
 | The audit log | The record of who saw or changed what. |
 
 ### Actors
@@ -45,7 +45,7 @@ week. Fixes land on `main`; there are no maintained release branches.
 | Anyone on the internet | Untrusted. Can submit the form and call `POST /api/leads`. |
 | A lead | Untrusted. Their form text and SMS replies are data, never instructions. |
 | Meta (lead ads) and the SMS provider | Trusted only when the request is signed with the shared secret. |
-| AI provider (Claude or Grok) | Its output is untrusted: it is schema-checked and can only suggest. |
+| Optional LLM adapter (Claude or Grok, off by default) | Its output is untrusted: it is schema-checked and can only suggest. |
 | Viewer | Read-only dashboard user. Never sees contact details. |
 | Rep | Works leads. Sees contact details only for leads assigned to them. |
 | Admin | Full dashboard access, including users and the kill switch. |
@@ -68,7 +68,7 @@ week. Fixes land on `main`; there are no maintained release branches.
 | `/api/metrics/*` | dashboard users, machine client | session or bearer token; aggregates only, no contact details |
 | `/docs`, `/openapi.json` | anyone (can be turned off) | read-only description of the API |
 | `python -m app.cli`, `alembic` | operator | shell access |
-| Outbound: AI provider, CRM | the worker | fixed, allowlisted hosts over HTTPS |
+| Outbound: optional LLM adapter, CRM | the worker | fixed, allowlisted hosts over HTTPS |
 | Outbound: SMTP server (Interview mode, opt-in) | the worker | host from configuration only, STARTTLS required (except loopback), caps |
 
 ### Trust boundaries
@@ -96,11 +96,11 @@ flowchart LR
   end
 
   subgraph Worker["Worker process"]
-    jobs["Jobs: AI scoring, follow-ups (MOCK senders),<br/>CRM sync"]
+    jobs["Jobs: scoring (rules; optional LLM), follow-ups (MOCK senders),<br/>CRM sync"]
   end
 
   subgraph Outbound["Third parties (allowlisted hosts only)"]
-    ai["AI provider<br/>(output untrusted, schema-checked)"]
+    ai["Optional LLM adapter (off by default;<br/>output untrusted, schema-checked)"]
     crm["CRM API"]
   end
 
@@ -218,7 +218,7 @@ flowchart LR
 - **Never logged:** a filter on the log handler masks phone numbers and emails in every
   log record, including `extra` fields and tracebacks. Error messages from CRM adapters
   carry status codes, never payloads. `app/logging.py`, `app/crm/http.py`
-- **Minimal data to the AI:** the model never sees the raw phone or email, only whether
+- **Minimal data to the optional LLM adapter:** the model never sees the raw phone or email, only whether
   they exist and the email domain. `app/services/scoring.py`
 - **Retention:** `python -m app.cli retention` (schedule it daily) removes personal data
   from leads older than `RETENTION_DAYS` (365). The default `anonymize` mode keeps the row
@@ -359,7 +359,7 @@ in this repository, so nothing here claims they are.
 - **The demo accounts are public on purpose** and reseeded on every start. In demo mode
   user changes are turned off; for a public deployment, set `DEMO_ROLES=viewer` (the
   `render.yaml` Blueprint does). Demo mode refuses to start on a non-SQLite database, with
-  a real AI provider unless `DEMO_ALLOW_REAL_AI=true`, and with a non-mock CRM
+  an LLM scoring adapter unless `DEMO_ALLOW_REAL_AI=true`, and with a non-mock CRM
   (`app/config.py`, `tests/integration/test_demo_hosting.py`). The public lead form stays
   open in the hosted demo, so visitors can add fake leads; senders are mocks either way.
 - **Interview email is at-least-once at the edges.** The outbox row claims the send

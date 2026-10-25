@@ -58,7 +58,7 @@ def record(url: str, video_dir: Path, seconds: float) -> Path:
         page.goto(f"{url}/dashboard/leads")
         page.wait_for_timeout(1200)
         page.click("table.leads tbody a >> nth=0")
-        page.wait_for_selector("text=AI assessment")
+        page.wait_for_selector("text=Lead score")
         page.wait_for_timeout(int(seconds * 1000 * 0.2))
         video = page.video
         ctx.close()

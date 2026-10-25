@@ -163,7 +163,7 @@ def test_kill_switch_page_pauses_and_resumes(web: TestClient) -> None:
     page = web.get("/dashboard/admin/system").text
     assert "running" in page
     assert "Pause all sends" in page
-    for label in ("AI provider", "CRM adapter", "Retention", "CORS origins"):
+    for label in ("Scoring adapter", "CRM adapter", "Retention", "CORS origins"):
         assert label in page
     assert "unit-test" not in page  # no secret values
     r = post(web, "/dashboard/admin/kill-switch", {"paused": "1"})

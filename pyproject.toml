@@ -1,7 +1,7 @@
 [project]
 name = "speed-to-lead"
 version = "1.1.0"
-description = "Lead capture, AI scoring, job queue, guarded follow-ups and an operator dashboard for a fictional home-services company."
+description = "Lead capture, rule-based scoring, job queue, guarded follow-ups and an operator dashboard for a fictional home-services company."
 requires-python = ">=3.11"
 license = { text = "Proprietary - see LICENSE" }
 classifiers = ["License :: Other/Proprietary License", "Private :: Do Not Upload"]

@@ -41,12 +41,12 @@ def test_overview_renders_kpis(web: TestClient) -> None:
         "Leads, 7 days",
         "Median first response",
         "Win rate, 30 days",
-        "Average AI score",
+        "Average lead score",
         "Open handoffs",
         "Dead-letter jobs",
         "Pipeline funnel",
         "Leads by source",
-        "AI score distribution",
+        "Lead score distribution",
         "First-response time by day",
         "Recent activity",
     ):
@@ -94,7 +94,7 @@ def test_lead_detail_masked_by_default_and_reveal_is_logged(web: TestClient) -> 
         assert raw not in r.text
     assert "***-***-0123" in r.text
     assert "j***@example.com" in r.text
-    for section in ("AI assessment", "Timeline", "Outbox", "Tasks", "Change stage", "CRM sync"):
+    for section in ("Lead score", "Timeline", "Outbox", "Tasks", "Change stage", "CRM sync"):
         assert section in r.text
     assert "MOCK" in r.text
     assert "Sent ack_sms" in r.text
@@ -220,3 +220,24 @@ def test_metrics_are_documented_in_openapi(web: TestClient) -> None:
 
 def test_health_alias_matches_healthz(web: TestClient) -> None:
     assert web.get("/health").json() == web.get("/healthz").json()
+
+
+def test_lead_detail_shows_who_scored_in_plain_words(web: TestClient) -> None:
+    """Display only: the stored scored_by values stay mock/fallback/claude."""
+    from app.models import Lead
+
+    lead_id = _seeded(web, 1)[0]
+    login(web)
+    factory = app_of(web).state.session_factory
+    for stored, shown in (
+        ("mock", "Scored by rules"),
+        ("fallback", "Scored by rules (fallback)"),
+        ("claude", "Scored by claude"),
+    ):
+        with factory() as s:
+            s.get(Lead, lead_id).scored_by = stored
+            s.commit()
+        page = web.get(f"/dashboard/leads/{lead_id}").text
+        assert shown in page
+        with factory() as s:
+            assert s.get(Lead, lead_id).scored_by == stored

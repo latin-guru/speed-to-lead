@@ -77,7 +77,7 @@ def main() -> int:
             page.goto(args.url + href)
             if page.locator("text=Nothing sent yet").count() == 0:
                 break
-        page.wait_for_selector("text=AI assessment")
+        page.wait_for_selector("text=Lead score")
         page.screenshot(path=str(args.out / "lead-detail.png"), full_page=True)
         log_out(page)
 

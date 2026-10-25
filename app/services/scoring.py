@@ -1,4 +1,7 @@
-"""Apply an AI score to a lead (runs inside the ``score_lead`` job)."""
+"""Apply a lead score to a lead (runs inside the ``score_lead`` job).
+
+Rules score by default; the optional LLM adapter is used only when configured.
+"""
 
 from __future__ import annotations
 

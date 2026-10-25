@@ -1,13 +1,13 @@
 # speed-to-lead
 
-**Reply to every new lead in seconds, safely: capture, verify, AI-score, follow up, and hand off to a person, with guardrails before every message.**
+**Reply to every new lead in seconds, safely: capture, verify, score with clear rules, follow up, and hand off to a person, with guardrails before every message.**
 
 [![CI](https://github.com/latin-guru/speed-to-lead/actions/workflows/ci.yml/badge.svg)](https://github.com/latin-guru/speed-to-lead/actions/workflows/ci.yml)
 [![Security](https://github.com/latin-guru/speed-to-lead/actions/workflows/security.yml/badge.svg)](https://github.com/latin-guru/speed-to-lead/actions/workflows/security.yml)
 ![Coverage floor](https://img.shields.io/badge/coverage-%E2%89%A595%25%20enforced%20in%20CI-brightgreen)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 
-This is a public showcase version of a lead pipeline I run in production. Business rules, prompts, and client data are kept private.
+This is a public showcase version of a lead pipeline I run in production. The production scoring rules and client data are kept private.
 
 The demo business is **Copperline Roofing & Solar (fictional)**. All sample data is fake (`555-01xx` phone numbers, `example.com` emails), and by default **nothing is ever really sent**: the SMS and email senders and the CRM adapters are mocks. The one exception is the opt-in [Interview mode](#interview-mode), where a single-use invite link can send one real email to an address its visitor typed in. Texts are never sent.
 
@@ -48,14 +48,14 @@ speed-to-lead answers within seconds, scores the lead, follows up on a polite sc
 - Log in as **`viewer@example.com`** with the password **`copperline-demo`** (shown on the login page). The public demo offers only this read-only account: you can browse everything, contact details stay masked, and nothing can be changed.
 - A new simulated lead arrives every few seconds through the real endpoints, and the dashboard refreshes on its own.
 - The [public lead form](https://speed-to-lead-demo-n34j.onrender.com) is there too, if you want to add a lead yourself (fake data is fine; nothing is sent).
-- It runs on one always-on web service, so it opens right away. Each restart reseeds fresh fake data.
-- How it's hosted: one Render web service defined in [`render.yaml`](render.yaml). The app, the job worker and the lead simulator run in that one process on a local SQLite file, so there's no paid worker, no expiring database and no cron. Demo mode refuses to start with a real AI provider, a real CRM or a non-SQLite database, and every sender is a mock.
+- It runs on one Render web service. If nobody has opened it for a while, the first load can take up to about a minute while the service wakes up; after that it responds normally. Each restart reseeds fresh fake data.
+- How it's hosted: one Render web service defined in [`render.yaml`](render.yaml). The app, the job worker and the lead simulator run in that one process on a local SQLite file, so there's no paid worker, no expiring database and no cron. The demo scores leads with the built-in rules only. Demo mode refuses to start with an LLM adapter (unless explicitly opted in), a real CRM or a non-SQLite database, and every sender is a mock.
 
 | Login with the demo accounts | Lead detail (contact masked) | Audit log (admin) |
 | --- | --- | --- |
 | ![Login page listing the demo accounts](docs/screenshots/login.png) | ![Lead detail with masked phone and email](docs/screenshots/lead-detail.png) | ![Audit log of logins and two-factor checks](docs/screenshots/security.png) |
 
-![Dashboard overview: KPIs, funnel, sources, AI scores and response times](docs/screenshots/dashboard.png)
+![Dashboard overview: KPIs, funnel, sources, lead scores and response times](docs/screenshots/dashboard.png)
 
 ## Interview mode
 
@@ -91,8 +91,8 @@ flowchart LR
 
     db --> queue["DB-backed job queue"]
     queue --> worker["Worker"]
-    worker --> scorer["AI scorer<br/>provider interface<br/>(mock / Claude / Grok)"]
-    scorer -. "on failure" .-> rules["Rule-based fallback"]
+    worker --> scorer["Lead scorer<br/>rule-based (default)"]
+    scorer -. "optional, off by default" .-> llm["LLM adapter<br/>(Claude / Grok)<br/>rules take over on failure"]
     worker --> engine["Follow-up engine"]
     engine --> guards{"Guards<br/>opt-out, stage, window,<br/>caps, kill switch"}
     guards -->|"allowed"| outbox["MOCK SMS / email<br/>outbox table"]
@@ -104,7 +104,7 @@ flowchart LR
 - **Capture.** A server-rendered form and a JSON API accept leads; a lead-ads style webhook accepts them only with a valid HMAC signature. Input is validated and normalized (names, phone numbers, emails), and rate limits apply per client and per phone number.
 - **Transactional outbox.** A new lead and all the work it needs (scoring, the first messages, CRM sync) are written in one database transaction, so the API answers in milliseconds and no lead can exist without its follow-up work.
 - **Job queue and worker.** Jobs live in a database table. Workers claim them with a lease, retry with backoff, and move them to a dead-letter list after too many failures, where an admin can retry them.
-- **AI scorer.** Behind a small provider interface (mock, Claude, Grok). Output must match a strict schema. Retries, a time budget and a circuit breaker protect the pipeline; any failure falls back to a rule-based score. The score is only a suggestion.
+- **Rule-based scorer.** Each lead gets a 0–100 score and a suggested next step from clear rules (contact completeness, intent keywords, source). The rules are the default and what the demo runs. An optional LLM adapter (Claude or Grok) can be turned on outside demo mode; its output must match a strict schema, retries, a time budget and a circuit breaker protect the pipeline, and on any failure the rules take over. The score is only a suggestion.
 - **Follow-up engine.** Runs a short sequence (an instant acknowledgment, then reminders). Before every send it checks consent, the lead's stage, the sending window in the lead's time zone, frequency caps and a global kill switch. Any reply hands the lead to a person.
 - **CRM sync.** Pushes each lead and stage change to a CRM through an adapter. Mocks are the default; the real-API skeletons show the request shapes.
 - **Dashboard.** KPIs, a pipeline funnel, sources, score distribution and response times, refreshed every few seconds, plus lead pages with masked contact details, tasks and admin tools.
@@ -120,8 +120,8 @@ Every row links to the tests that prove it. [`tests/test_readme_claims.py`](test
 | Lead-ads style webhook: signature verified, fails closed without a secret, idempotent per lead id | [`test_webhook_meta.py`](tests/integration/test_webhook_meta.py), [`test_signatures.py`](tests/unit/test_signatures.py), [`test_meta_parse.py`](tests/unit/test_meta_parse.py) |
 | Rate limits per client IP and a daily cap per phone number, with `Retry-After` | [`test_rate_limit.py`](tests/unit/test_rate_limit.py), [`test_leads_api.py`](tests/integration/test_leads_api.py) |
 | DB-backed job queue: idempotent enqueue, leases, fencing, backoff, dead-letter and retry; concurrent workers never double-claim | [`test_queue.py`](tests/unit/test_queue.py), [`test_worker.py`](tests/integration/test_worker.py) |
-| AI scoring with a strict output schema, one repair pass, retries, a circuit breaker and a rule-based fallback | [`test_ai_service.py`](tests/unit/test_ai_service.py), [`test_ai_resilience.py`](tests/unit/test_ai_resilience.py), [`test_ai_parsing.py`](tests/unit/test_ai_parsing.py), [`test_ai_schema.py`](tests/unit/test_ai_schema.py), [`test_ai_providers.py`](tests/unit/test_ai_providers.py) |
-| Prompt-injection guards; suspicious input goes to human review, and the AI can never change a stage | [`test_ai_guard.py`](tests/unit/test_ai_guard.py), [`test_scoring_flow.py`](tests/integration/test_scoring_flow.py) |
+| Rule-based lead scoring; optional LLM adapter (off by default) with a strict output schema, one repair pass, retries, a circuit breaker and the rules as fallback | [`test_ai_service.py`](tests/unit/test_ai_service.py), [`test_ai_resilience.py`](tests/unit/test_ai_resilience.py), [`test_ai_parsing.py`](tests/unit/test_ai_parsing.py), [`test_ai_schema.py`](tests/unit/test_ai_schema.py), [`test_ai_providers.py`](tests/unit/test_ai_providers.py) |
+| Prompt-injection guards for the optional LLM adapter; suspicious input goes to human review, and the scorer can never change a stage | [`test_ai_guard.py`](tests/unit/test_ai_guard.py), [`test_scoring_flow.py`](tests/integration/test_scoring_flow.py) |
 | Pipeline with explicit allowed transitions; only a person moves a stage | [`test_pipeline_rules.py`](tests/unit/test_pipeline_rules.py), [`test_pipeline_api.py`](tests/integration/test_pipeline_api.py) |
 | Follow-up sequence: instant acknowledgment, reminders, after-hours wording | [`test_followups.py`](tests/integration/test_followups.py), [`test_sequence.py`](tests/unit/test_sequence.py) |
 | Guards before every send: sending window in the lead's time zone (DST-safe), weekly cap per person, minimum gap, kill switch | [`test_guards.py`](tests/unit/test_guards.py), [`test_followups.py`](tests/integration/test_followups.py) |
@@ -163,8 +163,8 @@ Built as if it held real people's contact details. The full threat model, with t
 - Roles checked on the server for every route, including object-level checks on each lead.
 - Server-side sessions, session-bound CSRF tokens, strict CSP and other security headers.
 - Phone and email encrypted at rest with a blind index; masked on screen and in logs; every reveal is audited.
-- Signed, idempotent webhooks; outbound calls only to allowlisted hosts; prompt-injection guards on AI input.
-- Demo mode refuses unsafe configuration: a non-SQLite database, a real AI provider without an explicit opt-in, or a non-mock CRM.
+- Signed, idempotent webhooks; outbound calls only to allowlisted hosts; prompt-injection guards on input to the optional LLM adapter.
+- Demo mode refuses unsafe configuration: a non-SQLite database, an LLM scoring adapter without an explicit opt-in, or a non-mock CRM.
 - Real email is invite-only and opt-in twice (`EMAIL_BACKEND` and `INTERVIEW_EMAIL_ENABLED`), consented, single-use and capped; SMS is never real.
 
 ## Run the demo locally
@@ -189,7 +189,7 @@ The Postgres-specific queue test (`SKIP LOCKED`) runs when `TEST_POSTGRES_URL` p
 
 - **A database-backed queue instead of a message broker.** One fewer service to run, and jobs are created in the same transaction as the lead, so work is never lost or orphaned. Postgres claims rows with `SKIP LOCKED`; SQLite uses an atomic conditional update. The tradeoff is throughput: fine for lead volumes, not for millions of jobs per hour.
 - **Idempotency keys everywhere.** Jobs, messages and CRM records each have a natural unique key, so retries and duplicate webhooks are harmless. This makes "at least once" execution safe without distributed transactions.
-- **AI as a suggestion, with a rule fallback.** The model scores and suggests a next step; it cannot change a stage, send a message or call tools. If the provider is slow, down or returns bad output, a rule-based score takes over, so a lead is never stuck waiting on AI.
+- **Rule-based scoring as a suggestion.** Clear rules score each lead and suggest a next step; the score cannot change a stage, send a message or call tools. An optional LLM adapter can be plugged in behind the same interface, under the same limits. If it is slow, down or returns bad output, the rules take over, so a lead is never stuck waiting.
 - **Guardrails before every send.** Consent, stage, time of day and frequency are checked at send time, not only when the message was scheduled, so a STOP or a human taking over always wins. "Not now" defers a job instead of dropping it.
 - **Encryption plus a blind index.** Contact details are encrypted at rest, and a keyed hash allows exact-match lookups (duplicates, opt-outs) without decrypting. The tradeoff: no partial or fuzzy search on those fields.
 - **Mocks for every external service.** Senders and CRMs are mocks with the same contracts as the real thing (including uniqueness rules), so the full flow runs and is tested offline. Real-API skeletons show the request shapes without shipping credentials.

@@ -2,6 +2,10 @@
 
 Highlights per version. The demo company and all sample data are fictional.
 
+## Unreleased
+
+- Docs/UI: describe scoring as rule-based; the LLM adapter is optional and off by default.
+
 ## 1.1.0
 
 - Interview mode: an admin or rep creates a single-use, two-hour link (`/try/<token>`, stored only as a hash, revocable, audited). The visitor enters their own email, consents to one demo email, and watches their lead get created, scored, answered and synced on a live panel.

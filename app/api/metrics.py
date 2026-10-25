@@ -171,7 +171,7 @@ def sources(
 def scores(
     session: SessionDep, days: int = Query(default=CHART_DAYS, ge=1, le=365)
 ) -> list[LabelCount]:
-    """AI score distribution in 10-point buckets."""
+    """Lead score distribution in 10-point buckets."""
     period = m.Period.last_days(utcnow(), days)
     return [LabelCount(label=b, count=n) for b, n in m.score_histogram(session, period)]
 
