@@ -1,4 +1,4 @@
-# Render Blueprint: the public demo as ONE web service (Starter plan while Kevin is interviewing).
+# Render Blueprint: the public demo as ONE web service (Free plan).
 #
 # DEMO_MODE=1 resets a SQLite file on the service's local (ephemeral) disk at every start,
 # seeds fake history, and runs the worker and the lead simulator inside the web process, so
@@ -6,8 +6,9 @@
 # Only the read-only viewer login is offered (DEMO_ROLES=viewer). Scoring and the CRM are
 # MOCKS and every sender is a MOCK: no API keys are used and nothing leaves the service.
 #
-# Starter instances stay awake (no slow first load) and may send email over SMTP (free ones can't).
-# Switching back to plan: free works too; the demo then sleeps when idle and Interview mode email is off.
+# Free instances sleep when idle, so the first load after a quiet spell can take up to about a
+# minute while the service wakes up. Free instances also can't send email over SMTP, so Interview
+# mode email stays off. plan: starter keeps the service awake and allows SMTP.
 #
 # Interview mode (invite-only links that send ONE real email each; SMS is never real) is off
 # here: EMAIL_BACKEND=mock and INTERVIEW_EMAIL_ENABLED=false. To turn it on, set in the Render
@@ -22,7 +23,7 @@ services:
   - type: web
     name: speed-to-lead-demo
     runtime: python
-    plan: starter
+    plan: free
     autoDeployTrigger: commit
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:create_app --factory --host 0.0.0.0 --port $PORT
