@@ -241,3 +241,27 @@ def test_lead_detail_shows_who_scored_in_plain_words(web: TestClient) -> None:
         assert shown in page
         with factory() as s:
             assert s.get(Lead, lead_id).scored_by == stored
+
+
+def test_timeline_and_feed_say_rules_not_mock(web: TestClient) -> None:
+    """The scorer is rule-based; screens must not read as "by mock" / "ai:mock"."""
+    from app.models import Activity
+
+    lead_id = _seeded(web, 1)[0]
+    login(web)
+    page = web.get(f"/dashboard/leads/{lead_id}").text
+    assert "by rules, suggests" in page
+    assert '<span class="who muted">rules</span>' in page
+    assert "by mock" not in page
+    assert "ai:mock" not in page
+
+    feed = web.get("/api/metrics/activity").json()
+    scored = [a for a in feed if a["kind"] == "ai_scored"]
+    assert scored, feed
+    assert all(a["actor"] == "rules" and " by rules, " in a["summary"] for a in scored)
+
+    with app_of(web).state.session_factory() as s:  # stored values are untouched
+        stored = s.scalars(select(Activity).where(Activity.kind == "ai_scored")).all()
+        assert stored
+        assert all(a.actor == "ai:mock" for a in stored)
+        assert all(a.detail["scored_by"] == "mock" for a in stored)

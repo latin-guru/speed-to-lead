@@ -27,6 +27,7 @@ from app.models import Job, Lead, LeadStage, OutboxMessage, Task, TaskStatus, Us
 from app.security.authz import Permission, Principal, can_on_lead, has
 from app.services import audit
 from app.services import metrics as m
+from app.services.display import display_actor
 from app.services.pipeline import ALLOWED_TRANSITIONS, TransitionError, move_stage
 from app.services.timeline import add_activity
 from app.web.common import Forbidden, render, require, require_post
@@ -199,7 +200,7 @@ def _detail(
         {
             "at": a.created_at,
             "kind": a.kind,
-            "actor": a.actor,
+            "actor": display_actor(a.actor),
             "summary": m.activity_summary(a.kind, a.detail),
         }
         for a in sorted(lead.activities, key=lambda a: (a.created_at, a.id), reverse=True)

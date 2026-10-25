@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.interview.mailer import REAL_SENDERS, mask_email
 from app.jobs import kinds
 from app.models import InterviewInvite, Job, JobStatus, Lead, OutboxMessage
+from app.services.display import display_scorer
 
 NOTES = {
     "mock:disabled": "Real email is turned off on this server, so the mock sender recorded "
@@ -88,7 +89,7 @@ def panel(session: Session, invite: InterviewInvite, *, crm_enabled: bool = True
             "at": _iso(lead.scored_at),
             "score": lead.score,
             "summary": lead.score_summary,
-            "detail": f"Scored by the {lead.scored_by} scorer." if lead.scored_by else None,
+            "detail": f"Scored by {display_scorer(lead.scored_by)}." if lead.scored_by else None,
         },
         _email_step(session, invite, lead),
         {
