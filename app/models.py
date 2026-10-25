@@ -68,7 +68,7 @@ class Lead(Base):
     source: Mapped[str] = mapped_column(String(32), index=True)
     message: Mapped[str | None] = mapped_column(Text)
     timezone: Mapped[str | None] = mapped_column(String(64))  # IANA name; None = business tz
-    # Stage is only changed by explicit business actions, never by the AI scorer.
+    # Stage is only changed by explicit business actions, never by the scorer.
     stage: Mapped[str] = mapped_column(String(16), default=LeadStage.NEW.value, index=True)
     lost_reason: Mapped[str | None] = mapped_column(String(200))
 

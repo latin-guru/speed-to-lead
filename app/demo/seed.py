@@ -3,7 +3,7 @@
 Everything here is invented: Faker names (fixed seed), ``555-01xx`` phone numbers and
 ``example.com`` emails, for the fictional Copperline Roofing & Solar. The history is built
 from the *real* pieces: the default follow-up sequence and its templates, the sending
-window, the after-hours wording and the mock AI scorer. So the dashboard shows what the
+window, the after-hours wording and the built-in rule-based scorer. So the dashboard shows what the
 system would have produced, not made-up numbers.
 
 Determinism: with the same ``seed`` and ``count`` the same leads get the same stages,

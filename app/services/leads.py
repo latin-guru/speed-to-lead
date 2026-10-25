@@ -51,7 +51,7 @@ def create_lead(
 
 @dataclass(frozen=True)
 class Intake:
-    """Queues the work for a new lead: AI scoring, the follow-up sequence and a CRM sync.
+    """Queues the work for a new lead: scoring, the follow-up sequence and a CRM sync.
 
     Called *before* the lead's transaction commits, so the lead and its jobs are saved
     together or not at all (a transactional outbox). Capture returns without waiting for

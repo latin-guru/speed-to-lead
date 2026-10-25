@@ -7,7 +7,7 @@ Rules:
 - A ``lost`` lead can be reopened to ``qualified`` (an operator action, with a required
   reason). The reopen is logged as its own ``lead_reopened`` activity; automation stays
   stopped (a human is working the lead).
-- Only a human (``actor="human:<name>"``) can move a stage. The AI scorer writes a
+- Only a human (``actor="human:<name>"``) can move a stage. The scorer writes a
   *suggested* ``next_step`` and nothing else; there is deliberately no code path from a
   score to a stage change.
 - Moving to contacted, won or lost stops the follow-up sequence and queues a CRM sync.
