@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.db import utc
 from app.models import Activity, Job, JobStatus, Lead, LeadStage, Task, TaskStatus
+from app.services.display import display_actor, display_scorer
 
 FUNNEL = (LeadStage.NEW, LeadStage.QUALIFIED, LeadStage.CONTACTED, LeadStage.WON)
 SCORE_BUCKETS = 10  # 0-9, 10-19, ..., 90-100
@@ -248,7 +249,8 @@ def activity_summary(kind: str, detail: dict[str, Any]) -> str:
     texts: dict[str, str] = {
         "lead_created": f"New lead from {d.get('source', '?')}",
         "ai_scored": (
-            f"Scored {d.get('score')} by {d.get('scored_by')}, suggests {d.get('next_step')}"
+            f"Scored {d.get('score')} by {display_scorer(d.get('scored_by'))}, "
+            f"suggests {d.get('next_step')}"
         ),
         "followup_sent": (
             f"Sent {d.get('step')} ({d.get('channel')}, {d.get('variant', 'standard')})"
@@ -286,7 +288,7 @@ def recent_activity(session: Session, limit: int = 15) -> list[ActivityRow]:
             lead_id=a.lead_id,
             lead_name=name,
             kind=a.kind,
-            actor=a.actor,
+            actor=display_actor(a.actor),
             created_at=a.created_at,
             summary=activity_summary(a.kind, a.detail),
         )

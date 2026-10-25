@@ -63,7 +63,7 @@
     {% if lead.score is not none %}
     <p class="score"><span class="value">{{ lead.score }}</span><span class="muted">/100 · suggests <strong>{{ (lead.next_step or '')|replace('_', ' ') }}</strong> · confidence {{ '%.0f%%' % ((lead.score_confidence or 0) * 100) }}</span></p>
     <p>{{ lead.score_summary }}</p>
-    <p class="small muted">Scored by {{ {'mock': 'rules', 'fallback': 'rules (fallback)'}.get(lead.scored_by, lead.scored_by) }}{% if lead.score_latency_ms is not none %} in {{ lead.score_latency_ms }} ms{% endif %}. The score is a suggestion; only a person changes the stage.</p>
+    <p class="small muted">Scored by {{ display_scorer(lead.scored_by) }}{% if lead.score_latency_ms is not none %} in {{ lead.score_latency_ms }} ms{% endif %}. The score is a suggestion; only a person changes the stage.</p>
     {% if lead.score_flags %}<ul class="tags" aria-label="Flags">{% for f in lead.score_flags %}<li class="tag tag-flag">{{ f|replace('_', ' ') }}</li>{% endfor %}</ul>{% endif %}
     {% else %}
     <p class="muted">Not scored yet. The worker picks this up within seconds.</p>

@@ -34,9 +34,11 @@ from app.security.csrf import (
     issue_token,
 )
 from app.security.sessions import cookie_secure
+from app.services.display import display_scorer
 
 ACCOUNT_PREFIX = "/dashboard/account"
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+templates.env.globals["display_scorer"] = display_scorer
 
 # Vendored Chart.js (app/web/static/vendor, MIT). The SRI hash pins the exact file.
 CHARTJS_VERSION = "4.5.1"

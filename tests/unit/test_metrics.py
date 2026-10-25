@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import init_db, make_engine, make_session_factory
@@ -196,11 +197,16 @@ def test_recent_activity_summaries_have_no_free_text(session: Session) -> None:
     rows = m.recent_activity(session, limit=10)
     assert [r.summary for r in rows] == [
         "something new",
-        "Scored 70 by mock, suggests call_now",
+        "Scored 70 by rules, suggests call_now",
         "Lead replied by SMS",
     ]
     assert all("555" not in r.summary for r in rows)
     assert rows[0].lead_name == "Pat Example"
+    # display only: the feed says "rules", the stored actor stays "ai:mock"
+    assert [r.actor for r in rows] == ["system", "rules", "lead"]
+    stored = session.scalars(select(Activity).where(Activity.kind == "ai_scored")).one()
+    assert stored.actor == "ai:mock"
+    assert stored.detail["scored_by"] == "mock"
 
 
 def test_lead_list_filters(session: Session) -> None:
