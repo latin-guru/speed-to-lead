@@ -45,6 +45,8 @@ speed-to-lead answers within seconds, scores the lead, follows up on a polite sc
 
 **[Open the live demo: speed-to-lead-demo-n34j.onrender.com/login](https://speed-to-lead-demo-n34j.onrender.com/login)**
 
+![Overview: KPIs, pipeline funnel, and leads by source](docs/screenshots/dashboard.png)
+
 - Log in as **`viewer@example.com`** with the password **`copperline-demo`** (shown on the login page). The public demo offers only this read-only account: you can browse everything, contact details stay masked, and nothing can be changed.
 - A new simulated lead arrives every few seconds through the real endpoints, and the dashboard refreshes on its own.
 - The [public lead form](https://speed-to-lead-demo-n34j.onrender.com) is there too, if you want to add a lead yourself (fake data is fine; nothing is sent).
@@ -55,8 +57,6 @@ speed-to-lead answers within seconds, scores the lead, follows up on a polite sc
 | --- | --- | --- |
 | ![Login page listing the demo accounts](docs/screenshots/login.png) | ![Lead detail with masked phone and email](docs/screenshots/lead-detail.png) | ![Audit log of logins and two-factor checks](docs/screenshots/security.png) |
 
-![Dashboard overview: KPIs, funnel, sources, lead scores and response times](docs/screenshots/dashboard.png)
-
 ## Interview mode
 
 For showing the pipeline to someone live: instead of only watching simulated leads, they receive the real reply in their own inbox.
@@ -64,6 +64,8 @@ For showing the pipeline to someone live: instead of only watching simulated lea
 1. Logged in as an admin or rep (with two-factor as usual), open **Interview mode** in the dashboard and create a link, optionally labeled ("Acme interview"). The link works **once** and expires after **2 hours** (`INVITE_TTL_MINUTES`). Only a hash of it is stored, so it is shown once; links can be revoked, and creating, using and revoking them is audited.
 2. The visitor opens `/try/<token>`, enters a first name and their email, and ticks an unchecked consent box ("I agree to receive one demo email at this address..."). The form has CSRF protection, a honeypot and a per-IP rate limit.
 3. The lead goes through the **real pipeline** (source `interview_demo`): scored, synced to the mock CRM, and answered. The page turns into a live panel (polling every 2 seconds) showing each step as it happens, then links to the dashboard.
+
+![Interview mode result: lead created, scored by rules, email sent, and synced to the mock CRM](docs/screenshots/interview-mode.png)
 
 What is real and what is not:
 
@@ -109,6 +111,10 @@ flowchart LR
 - **CRM sync.** Pushes each lead and stage change to a CRM through an adapter. Mocks are the default; the real-API skeletons show the request shapes.
 - **Dashboard.** KPIs, a pipeline funnel, sources, score distribution and response times, refreshed every few seconds, plus lead pages with masked contact details, tasks and admin tools.
 - **Auth and audit.** Email and password accounts with roles, two-factor for admins, server-side sessions, and an audit log of sensitive actions.
+
+The JSON API has auto-generated docs at `/docs`.
+
+![Auto-generated API docs: health checks and the lead endpoints](docs/screenshots/api-docs.png)
 
 ## What it does
 
